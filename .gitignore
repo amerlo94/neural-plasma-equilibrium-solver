@@ -1,0 +1,5 @@
+#  local notes file
+notes.md
+
+.vscode
+__pycache__/
