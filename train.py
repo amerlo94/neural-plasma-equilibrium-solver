@@ -9,21 +9,6 @@ from utils import log_gradients
 
 torch.set_default_tensor_type(torch.DoubleTensor)
 
-########
-# Test #
-########
-
-
-def test_grad():
-    """TODO: move me under tests."""
-    x = torch.randn(ns, 2)
-    x.requires_grad_()
-    y = (x**2).sum(dim=1)
-    assert (2 * x == grad(y, x, retain_graph=True)).all()
-    a = torch.randn(2, 16)
-    y = (x[..., None] * a[None, ...]).sum(dim=(1, 2))
-    assert a.sum(dim(1, 2)) == grad(y, x, retain_graph=True)
-
 
 ##########
 # Models #

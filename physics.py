@@ -84,9 +84,6 @@ class HighBetaEquilibrium(Equilibrium):
         )
 
     def psi_(self, x: Tensor) -> Tensor:
-        """
-        TODO: check me!
-        """
         rho = x[:, 0]
         theta = x[:, 1]
         return (
