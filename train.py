@@ -14,19 +14,22 @@ torch.set_default_tensor_type(torch.DoubleTensor)
 # Test #
 ########
 
+
 def test_grad():
     """TODO: move me under tests."""
     x = torch.randn(ns, 2)
     x.requires_grad_()
-    y = (x ** 2).sum(dim=1)
+    y = (x**2).sum(dim=1)
     assert (2 * x == grad(y, x, retain_graph=True)).all()
     a = torch.randn(2, 16)
     y = (x[..., None] * a[None, ...]).sum(dim=(1, 2))
     assert a.sum(dim(1, 2)) == grad(y, x, retain_graph=True)
 
+
 ##########
 # Models #
 ##########
+
 
 class MLP(torch.nn.Module):
     def __init__(self, width: int = 16, a: float = 1.0, psi_0: float = 1.0):
@@ -54,9 +57,11 @@ class MLP(torch.nn.Module):
         psi_hat = self.tanh(psi_hat / 2)
         return self.psi_0 * self.fc2(psi_hat).view(-1)
 
+
 #########
 # Train #
 #########
+
 
 def train(niter: int):
 
@@ -86,7 +91,8 @@ def train(niter: int):
                 + f"loss={loss['tot'].item():.2e}, "
                 + f"pde_loss={loss['pde'].item():.2e}, "
                 + f"boundary_loss={loss['boundary'].item():.2e}, "
-                + f"data_loss={loss['data'].item():.2e}")
+                + f"data_loss={loss['data'].item():.2e}"
+            )
             log_gradients(model, learning_rate, t)
 
         optimizer.zero_grad()
@@ -129,6 +135,7 @@ def train(niter: int):
     # ax.legend()
 
     plt.show()
+
 
 if __name__ == "__main__":
     train(niter=10000)
