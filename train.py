@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 from physics import HighBetaEquilibrium
 from utils import log_gradients
 
-torch.manual_seed(42)
 torch.set_default_tensor_type(torch.DoubleTensor)
 
 ########
@@ -63,10 +62,13 @@ class MLP(torch.nn.Module):
 #########
 
 
-def train(niter: int):
+def train(niter: int, seed: int = 42):
+
+    #  Set seed
+    torch.manual_seed(seed)
 
     equi = HighBetaEquilibrium()
-    x, _ = equi.get_x_y()
+    x = equi.get_collocation_points(kind="grid")
     x.requires_grad_()
 
     model = MLP(a=equi.a, psi_0=equi.psi_0)
@@ -74,7 +76,6 @@ def train(niter: int):
 
     learning_rate = 3e-3
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    # optimizer = torch.optim.LBFGS(model.parameters())
 
     log_every_n_iter = 500
 
@@ -82,10 +83,8 @@ def train(niter: int):
 
         psi_hat = model(x)
         loss = equi.closure(x, psi_hat)
-        # loss = closure_fn()
 
         if t % log_every_n_iter == log_every_n_iter - 1:
-            # print(f"iter={t:4d}, loss={loss.item():.2e}")
             print(
                 f"iter={t:4d}, "
                 + f"loss={loss['tot'].item():.2e}, "
@@ -97,14 +96,14 @@ def train(niter: int):
 
         optimizer.zero_grad()
         loss["tot"].backward()
-        # loss.backward()
         optimizer.step()
 
     #############
     # Visualize #
     #############
 
-    #  TODO: use test data set
+    #  Check solution on a grid
+    x = equi.get_collocation_points(kind="grid")
 
     #  Get model solution
     model.eval()
@@ -113,12 +112,12 @@ def train(niter: int):
         psi_hat *= equi.psi_0
 
     #  Analytical solution
-    psi = equi.psi(x).detach()
+    psi = equi.psi(x)
 
     #  Plot magnetic flux
     fig, ax = plt.subplots(1, 1, tight_layout=True)
-    equi.fluxplot(psi, ax, linestyles="solid")
-    equi.fluxplot(psi_hat, ax, linestyles="dashed")
+    equi.fluxplot(x, psi, ax, linestyles="solid")
+    equi.fluxplot(x, psi_hat, ax, linestyles="dashed")
 
     #  Plot scatter plot
     fig, ax = plt.subplots(1, 1, tight_layout=True)
