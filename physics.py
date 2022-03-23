@@ -127,7 +127,7 @@ class HighBetaEquilibrium(Equilibrium):
         dpsi2_dtheta2 = grad(dpsi_dtheta, x, create_graph=True)[:, 1]
         rho = x[:, 0]
         theta = x[:, 1]
-        residual = dpsi_drho + dpsi2_drho2 + dpsi2_dtheta2
+        residual = rho * dpsi_drho + rho**2 * dpsi2_drho2 + dpsi2_dtheta2
         residual -= (
             self.a**2
             / self.psi_0

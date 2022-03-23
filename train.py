@@ -47,19 +47,22 @@ class MLP(torch.nn.Module):
 #########
 
 
-def train(niter: int, seed: int = 42):
+def train(niter: int, seed: int = 42, normalized: bool = True):
 
     #  Set seed
     torch.manual_seed(seed)
 
-    equi = HighBetaEquilibrium()
+    equi = HighBetaEquilibrium(normalized=normalized)
     x = equi.get_collocation_points(kind="grid")
     x.requires_grad_()
 
-    model = MLP(a=equi.a, psi_0=equi.psi_0)
+    if equi.normalized:
+        model = MLP()
+    else:
+        model = MLP(a=equi.a, psi_0=equi.psi_0)
     model.train()
 
-    learning_rate = 3e-3
+    learning_rate = 1e-2
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     log_every_n_iter = 500
@@ -97,6 +100,8 @@ def train(niter: int, seed: int = 42):
         psi_hat *= equi.psi_0
 
     #  Analytical solution
+    equi.normalized = False
+    x = equi.get_collocation_points(kind="grid")
     psi = equi.psi(x)
 
     #  Plot magnetic flux

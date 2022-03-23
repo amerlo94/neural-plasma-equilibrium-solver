@@ -30,7 +30,7 @@ def test_high_beta_normalized_psi(ns: int):
     equi.normalized = True
     x_ = equi.get_collocation_points(ns=ns)
     psi_ = equi.psi_(x_)
-    assert torch.allclose(psi_ * equi.psi_0, psi)
+    assert ((psi_ * equi.psi_0 - psi).abs() < 1e-9).all()
 
 
 @pytest.mark.parametrize("normalized", (True, False))
@@ -41,8 +41,8 @@ def test_high_beta_pde_closure(normalized: bool, ns: int):
     x.requires_grad_()
     if normalized:
         psi = equi.psi_(x)
-        residual = equi.pde_closure_(x, psi)
+        residual = equi.pde_closure_(x, psi).item()
     else:
         psi = equi.psi(x)
-        residual = equi.pde_closure(x, psi)
-    assert torch.allclose(residual, torch.zeros(0), rtol=0, atol=1e-16)
+        residual = equi.pde_closure(x, psi).item()
+    assert abs(residual) < 1e-10
