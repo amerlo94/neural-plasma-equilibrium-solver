@@ -56,10 +56,10 @@ def train(niter: int, seed: int = 42, normalized: bool = True):
     x = equi.get_collocation_points(kind="grid")
     x.requires_grad_()
 
-    if equi.normalized:
-        model = MLP()
-    else:
-        model = MLP(a=equi.a, psi_0=equi.psi_0)
+    params = {}
+    if not equi.normalized:
+        params = {"a": equi.a, "psi_0": equi.psi_0}
+    model = MLP(**params)
     model.train()
 
     learning_rate = 1e-2
@@ -100,8 +100,7 @@ def train(niter: int, seed: int = 42, normalized: bool = True):
         psi_hat *= equi.psi_0
 
     #  Analytical solution
-    equi.normalized = False
-    x = equi.get_collocation_points(kind="grid")
+    x = equi.get_collocation_points(kind="grid", normalized=False)
     psi = equi.psi(x)
 
     #  Plot magnetic flux

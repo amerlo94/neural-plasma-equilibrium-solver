@@ -55,7 +55,7 @@ class Equilibrium:
     def closure_fn(self, *args, **kwargs) -> Tensor:
         return self.closure(*args, **kwargs)["tot"]
 
-    def get_collocation_points(self) -> Tuple[Tensor]:
+    def get_collocation_points(self, *args, **kwargs) -> Tuple[Tensor]:
         raise NotImplementedError()
 
     def fluxplot(self, *args, **kwargs):
@@ -117,9 +117,6 @@ class HighBetaEquilibrium(Equilibrium):
         return (residual**2).sum()
 
     def pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
-        """
-        TODO: check me, this is not correct.
-        """
         dpsi_dx = grad(psi, x, create_graph=True)
         dpsi_drho = dpsi_dx[:, 0]
         dpsi_dtheta = dpsi_dx[:, 1]
@@ -146,15 +143,23 @@ class HighBetaEquilibrium(Equilibrium):
         boundary = rho == 1
         return (psi[boundary] ** 2).sum()
 
-    def get_collocation_points(self, ns: int = 50, kind: str = "grid") -> Tuple[Tensor]:
-        if self.normalized:
+    def get_collocation_points(
+        self, ns: int = 50, kind: str = "grid", normalized: bool = None
+    ) -> Tuple[Tensor]:
+
+        if normalized is None:
+            normalized = self.normalized
+
+        if normalized:
             rho_b = 1.0
         else:
             rho_b = self.a
+
         if kind == "grid":
             rho = torch.linspace(0, rho_b, ns)
             theta = torch.linspace(-math.pi, math.pi, ns)
         elif kind == "random":
+            #  Always include the axis and the boundary
             rho = torch.empty(ns)
             rho[1:-1] = torch.rand(ns - 2) * rho_b
             rho[0] = 0
@@ -162,6 +167,7 @@ class HighBetaEquilibrium(Equilibrium):
             theta = (2 * torch.rand(ns) - 1) * math.pi
         else:
             raise NotImplementedError("kind %s is not supported", kind)
+
         return torch.cartesian_prod(rho, theta)
 
     def fluxplot(self, x, psi, ax, *args, **kwargs):
