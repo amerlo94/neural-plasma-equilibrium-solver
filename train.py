@@ -62,17 +62,30 @@ def train(niter: int, seed: int = 42, normalized: bool = True):
     model = MLP(**params)
     model.train()
 
-    learning_rate = 1e-2
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    learning_rate = 3e-1
+    optimizer = torch.optim.LBFGS(
+        model.parameters(),
+        lr=learning_rate,
+        tolerance_change=1e-11,
+        max_iter=20,
+        line_search_fn="strong_wolfe",
+    )
 
-    log_every_n_iter = 500
+    log_every_n_iter = 10
+
+    def closure():
+        optimizer.zero_grad()
+        psi_hat = model(x)
+        loss = equi.closure(x, psi_hat)["tot"]
+        loss.backward()
+        return loss
 
     for t in range(niter):
 
-        psi_hat = model(x)
-        loss = equi.closure(x, psi_hat)
-
         if t % log_every_n_iter == log_every_n_iter - 1:
+            optimizer.zero_grad()
+            psi_hat = model(x)
+            loss = equi.closure(x, psi_hat)
             print(
                 f"iter={t:5d}, "
                 + f"loss={loss['tot'].item():.2e}, "
@@ -80,11 +93,8 @@ def train(niter: int, seed: int = 42, normalized: bool = True):
                 + f"boundary_loss={loss['boundary'].item():.2e}, "
                 + f"data_loss={loss['data'].item():.2e}"
             )
-            log_gradients(model, learning_rate, t)
 
-        optimizer.zero_grad()
-        loss["tot"].backward()
-        optimizer.step()
+        optimizer.step(closure)
 
     #############
     # Visualize #
@@ -128,4 +138,4 @@ def train(niter: int, seed: int = 42, normalized: bool = True):
 
 
 if __name__ == "__main__":
-    train(niter=1000)
+    train(niter=500)

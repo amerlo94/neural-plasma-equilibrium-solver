@@ -60,9 +60,6 @@ class Equilibrium:
         loss["tot"] = loss["pde"] + loss["boundary"]
         return loss
 
-    def closure_fn(self, *args, **kwargs) -> Tensor:
-        return self.closure(*args, **kwargs)["tot"]
-
     def get_collocation_points(self, *args, **kwargs) -> Tuple[Tensor]:
         raise NotImplementedError()
 
