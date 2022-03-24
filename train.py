@@ -128,4 +128,4 @@ def train(niter: int, seed: int = 42, normalized: bool = True):
 
 
 if __name__ == "__main__":
-    train(niter=0)
+    train(niter=1000)
