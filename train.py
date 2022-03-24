@@ -119,20 +119,13 @@ def train(niter: int, seed: int = 42, normalized: bool = True):
 
     #  Plot scatter plot
     fig, ax = plt.subplots(1, 1, tight_layout=True)
-    ax.scatter(psi_hat.view(-1), psi.view(-1))
+    _, _, _, im = ax.hist2d(psi_hat.tolist(), psi.tolist(), bins=50, cmin=1)
     ax.plot([psi.min(), psi.max()], [psi.min(), psi.max()], "r--", linewidth=2)
-
-    #  Plot 1D slices
-    #  TODO: fix me!
-    # fig, ax = plt.subplots(1, 1, tight_layout=True)
-    # thetas_to_plot = torch.linspace(0, int(equi.ns / 2) - 1, 3, dtype=int)
-    # for i in thetas_to_plot:
-    #     ax.plot(x[theta][:, 0], psi[:, i], "-", label=f"true theta={thetas[i]:.2f}")
-    #     ax.plot(x[theta][:, 0], psi_hat[:, i], "--", label=f"pred theta={thetas[i]:.2f}")
-    # ax.legend()
-
+    fig.colorbar(im, ax=ax)
+    ax.set_xlabel(r"$\hat{\Psi}$")
+    ax.set_ylabel(r"$\Psi$")
     plt.show()
 
 
 if __name__ == "__main__":
-    train(niter=10000)
+    train(niter=0)

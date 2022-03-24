@@ -17,7 +17,7 @@ def log_gradients(model, lr: float, t: int):
         if grad is not None:
             ratio = lr * torch.linalg.norm(grad) / torch.linalg.norm(p)
             string.append(f"ratio={ratio.item():.2e}")
-    print(f"iter={t:4d}, " + ", ".join(string))
+    print(f"iter={t:5d}, " + ", ".join(string))
 
 
 def mae(preds: Tensor, target: Tensor, eps=1.17e-6):

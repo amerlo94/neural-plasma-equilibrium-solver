@@ -228,4 +228,7 @@ class HighBetaEquilibrium(Equilibrium):
         ax.contour(xx, yy, psi, levels=10, **kwargs)
         ax.axis("equal")
 
+        ax.set_xlabel(r"$R [m]$")
+        ax.set_ylabel(r"$Z [m]$")
+
         return ax
