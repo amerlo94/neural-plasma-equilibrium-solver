@@ -62,11 +62,12 @@ def train(niter: int, seed: int = 42, normalized: bool = True):
     model = MLP(**params)
     model.train()
 
-    learning_rate = 3e-1
+    learning_rate = 1e-1
     optimizer = torch.optim.LBFGS(
         model.parameters(),
         lr=learning_rate,
-        tolerance_change=1e-11,
+        tolerance_grad=0,
+        tolerance_change=0,
         max_iter=20,
         line_search_fn="strong_wolfe",
     )
