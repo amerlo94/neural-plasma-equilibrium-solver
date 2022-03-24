@@ -4,7 +4,7 @@ from typing import Tuple
 import torch
 from torch import Tensor
 
-from utils import grad
+from utils import grad, mae
 
 
 class Equilibrium:
@@ -15,8 +15,10 @@ class Equilibrium:
         #  Set closure function
         if normalized:
             self.closure = self._closure_
+            self.mae_pde_loss = self._mae_pde_loss_
         else:
             self.closure = self._closure
+            self.mae_pde_loss = self._mae_pde_loss
 
     def data_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         raise NotImplementedError()
@@ -34,6 +36,12 @@ class Equilibrium:
         raise NotImplementedError()
 
     def boundary_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+        raise NotImplementedError()
+
+    def _mae_pde_loss(self, x: Tensor, psi: Tensor) -> Tensor:
+        raise NotImplementedError()
+
+    def _mae_pde_loss_(self, x: Tensor, psi: Tensor) -> Tensor:
         raise NotImplementedError()
 
     def _closure(self, x: Tensor, psi: Tensor) -> Tensor:
@@ -116,6 +124,19 @@ class HighBetaEquilibrium(Equilibrium):
         residual -= rho**2 * (self.A + self.C * rho * torch.cos(theta))
         return (residual**2).sum()
 
+    def _mae_pde_loss(self, x: Tensor, psi: Tensor) -> Tensor:
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_drho = dpsi_dx[:, 0]
+        dpsi_dtheta = dpsi_dx[:, 1]
+        dpsi2_drho2 = grad(dpsi_drho, x, create_graph=True)[:, 0]
+        dpsi2_dtheta2 = grad(dpsi_dtheta, x, create_graph=True)[:, 1]
+        rho = x[:, 0]
+        theta = x[:, 1]
+        residual = rho * dpsi_drho + rho**2 * dpsi2_drho2 + dpsi2_dtheta2
+        denom = rho**2 * (self.A + self.C * rho * torch.cos(theta))
+        #  TODO: avoid to compute error at the boundary to avoid division by 0
+        return mae(residual[rho != self.a], denom[rho != self.a])
+
     def pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
         dpsi_drho = dpsi_dx[:, 0]
@@ -132,6 +153,24 @@ class HighBetaEquilibrium(Equilibrium):
             * (self.A + self.a * self.C * rho * torch.cos(theta))
         )
         return (residual**2).sum()
+
+    def _mae_pde_loss_(self, x: Tensor, psi: Tensor) -> Tensor:
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_drho = dpsi_dx[:, 0]
+        dpsi_dtheta = dpsi_dx[:, 1]
+        dpsi2_drho2 = grad(dpsi_drho, x, create_graph=True)[:, 0]
+        dpsi2_dtheta2 = grad(dpsi_dtheta, x, create_graph=True)[:, 1]
+        rho = x[:, 0]
+        theta = x[:, 1]
+        residual = rho * dpsi_drho + rho**2 * dpsi2_drho2 + dpsi2_dtheta2
+        denom = (
+            self.a**2
+            / self.psi_0
+            * rho**2
+            * (self.A + self.a * self.C * rho * torch.cos(theta))
+        )
+        #  TODO: avoid to compute error at the boundary to avoid division by 0
+        return mae(residual[rho != 1], denom[rho != 1])
 
     def boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         rho = x[:, 0]

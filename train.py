@@ -5,7 +5,7 @@ import torch
 import matplotlib.pyplot as plt
 
 from physics import HighBetaEquilibrium
-from utils import log_gradients
+from utils import log_gradients, mae
 
 torch.set_default_tensor_type(torch.DoubleTensor)
 
@@ -53,7 +53,7 @@ def train(niter: int, seed: int = 42, normalized: bool = True):
     torch.manual_seed(seed)
 
     equi = HighBetaEquilibrium(normalized=normalized)
-    x = equi.get_collocation_points(kind="grid")
+    x = equi.get_collocation_points(kind="random")
     x.requires_grad_()
 
     params = {}
@@ -74,7 +74,7 @@ def train(niter: int, seed: int = 42, normalized: bool = True):
 
         if t % log_every_n_iter == log_every_n_iter - 1:
             print(
-                f"iter={t:4d}, "
+                f"iter={t:5d}, "
                 + f"loss={loss['tot'].item():.2e}, "
                 + f"pde_loss={loss['pde'].item():.2e}, "
                 + f"boundary_loss={loss['boundary'].item():.2e}, "
@@ -90,18 +90,27 @@ def train(niter: int, seed: int = 42, normalized: bool = True):
     # Visualize #
     #############
 
-    #  Check solution on a grid
+    #  Get solution on test collocation points on a regular grid
     x = equi.get_collocation_points(kind="grid")
+    x.requires_grad_()
+    psi_hat = model(x)
 
-    #  Get model solution
-    model.eval()
-    psi_hat = model(x).detach()
+    #  Compute normalized residual error
+    pde_mae = equi.mae_pde_loss(x, psi_hat)
+    print(f"pde mae={pde_mae:.2e}")
+
+    #  Scale model solution
+    psi_hat = psi_hat.detach()
     if equi.normalized:
         psi_hat *= equi.psi_0
 
     #  Analytical solution
     x = equi.get_collocation_points(kind="grid", normalized=False)
     psi = equi.psi(x)
+
+    #  Compute mae between model solution and analytical solution
+    psi_mae = mae(psi_hat, psi)
+    print(f"psi mae={psi_mae:.2e}")
 
     #  Plot magnetic flux
     fig, ax = plt.subplots(1, 1, tight_layout=True)

@@ -46,3 +46,17 @@ def test_high_beta_pde_closure(normalized: bool, ns: int):
         psi = equi.psi(x)
         residual = equi.pde_closure(x, psi).item()
     assert abs(residual) < 1e-10
+
+
+@pytest.mark.parametrize("normalized", (True, False))
+@pytest.mark.parametrize("ns", (5, 10, 50))
+def test_high_beta_mae_pde_loss(normalized: bool, ns: int):
+    equi = HighBetaEquilibrium(normalized=normalized)
+    x = equi.get_collocation_points(ns=ns)
+    x.requires_grad_()
+    if normalized:
+        psi = equi.psi_(x)
+    else:
+        psi = equi.psi(x)
+    mae = equi.mae_pde_loss(x, psi).item()
+    assert mae > 0 and mae < 1e-5
