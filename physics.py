@@ -3,14 +3,19 @@ from typing import Tuple
 
 import torch
 from torch import Tensor
+from torch.utils.data import IterableDataset
 
 from utils import grad, mae
 
 
-class Equilibrium:
-    def __init__(self, normalized: bool = False) -> None:
+class Equilibrium(IterableDataset):
+    def __init__(self, ns: int = 50, normalized: bool = False, seed: int = 42) -> None:
 
+        super().__init__()
+
+        self.ns = ns
         self.normalized = normalized
+        self.seed = seed
 
         #  Set closure functions
         if normalized:
@@ -32,7 +37,7 @@ class Equilibrium:
         loss["tot"] = loss["pde"] + loss["boundary"]
         return loss
 
-    def get_collocation_points(self, *args, **kwargs) -> Tuple[Tensor]:
+    def grid(self, *args, **kwargs) -> Tensor:
         raise NotImplementedError()
 
     def fluxplot(self, *args, **kwargs):
@@ -74,6 +79,25 @@ class HighBetaEquilibrium(Equilibrium):
         self.C = C
         self.R0 = R0
         self.psi_0 = -2 * A * a**2 / 8
+
+    def __iter__(self):
+
+        generator = torch.Generator()
+        generator.manual_seed(self.seed)
+
+        if self.normalized:
+            rho_b = 1.0
+        else:
+            rho_b = self.a
+
+        while True:
+            #  Always include the axis and the boundary
+            rho = torch.empty(self.ns)
+            rho[1:-1] = torch.rand(self.ns - 2, generator=generator) * rho_b
+            rho[0] = 0
+            rho[-1] = rho_b
+            theta = (2 * torch.rand(self.ns, generator=generator) - 1) * math.pi
+            yield torch.cartesian_prod(rho, theta)
 
     def psi(self, x: Tensor) -> Tensor:
         rho = x[:, 0]
@@ -175,30 +199,21 @@ class HighBetaEquilibrium(Equilibrium):
         boundary = rho == 1
         return (psi[boundary] ** 2).sum()
 
-    def get_collocation_points(
-        self, ns: int = 50, kind: str = "grid", normalized: bool = None
-    ) -> Tuple[Tensor]:
+    def grid(self, ns: int = None, normalized: bool = None) -> Tensor:
 
         if normalized is None:
             normalized = self.normalized
+
+        if ns is None:
+            ns = self.ns
 
         if normalized:
             rho_b = 1.0
         else:
             rho_b = self.a
 
-        if kind == "grid":
-            rho = torch.linspace(0, rho_b, ns)
-            theta = torch.linspace(-math.pi, math.pi, ns)
-        elif kind == "random":
-            #  Always include the axis and the boundary
-            rho = torch.empty(ns)
-            rho[1:-1] = torch.rand(ns - 2) * rho_b
-            rho[0] = 0
-            rho[-1] = rho_b
-            theta = (2 * torch.rand(ns) - 1) * math.pi
-        else:
-            raise NotImplementedError("kind %s is not supported", kind)
+        rho = torch.linspace(0, rho_b, ns)
+        theta = torch.linspace(-math.pi, math.pi, ns)
 
         return torch.cartesian_prod(rho, theta)
 

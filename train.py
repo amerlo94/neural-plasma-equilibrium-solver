@@ -47,14 +47,11 @@ class MLP(torch.nn.Module):
 #########
 
 
-def train(niter: int, seed: int = 42, normalized: bool = True):
+def train(nepochs: int = 100, seed: int = 42, normalized: bool = True):
 
-    #  Set seed
     torch.manual_seed(seed)
 
-    equi = HighBetaEquilibrium(normalized=normalized)
-    x = equi.get_collocation_points(kind="random")
-    x.requires_grad_()
+    equi = HighBetaEquilibrium(normalized=normalized, seed=seed)
 
     params = {}
     if not equi.normalized:
@@ -72,37 +69,43 @@ def train(niter: int, seed: int = 42, normalized: bool = True):
         line_search_fn="strong_wolfe",
     )
 
-    log_every_n_iter = 10
+    nsteps = 5
+    log_every_n_steps = 10
 
-    def closure():
-        optimizer.zero_grad()
-        psi_hat = model(x)
-        loss = equi.closure(x, psi_hat)["tot"]
-        loss.backward()
-        return loss
+    for e in range(nepochs):
+        for s, x in zip(range(nsteps), equi):
 
-    for t in range(niter):
+            x.requires_grad_()
 
-        if t % log_every_n_iter == log_every_n_iter - 1:
-            optimizer.zero_grad()
-            psi_hat = model(x)
-            loss = equi.closure(x, psi_hat)
-            print(
-                f"iter={t:5d}, "
-                + f"loss={loss['tot'].item():.2e}, "
-                + f"pde_loss={loss['pde'].item():.2e}, "
-                + f"boundary_loss={loss['boundary'].item():.2e}, "
-                + f"data_loss={loss['data'].item():.2e}"
-            )
+            def closure():
+                optimizer.zero_grad()
+                psi_hat = model(x)
+                loss = equi.closure(x, psi_hat)["tot"]
+                loss.backward()
+                return loss
 
-        optimizer.step(closure)
+            optimizer.step(closure)
+
+            #  Print the current loss (not aggregated across batches)
+            global_step = e * nsteps + s
+            if global_step % log_every_n_steps == log_every_n_steps - 1:
+                optimizer.zero_grad()
+                psi_hat = model(x)
+                loss = equi.closure(x, psi_hat)
+                print(
+                    f"[{e:5d}/{nepochs:5d}][{global_step:5d}], "
+                    + f"loss={loss['tot'].item():.2e}, "
+                    + f"pde_loss={loss['pde'].item():.2e}, "
+                    + f"boundary_loss={loss['boundary'].item():.2e}, "
+                    + f"data_loss={loss['data'].item():.2e}"
+                )
 
     #############
     # Visualize #
     #############
 
     #  Get solution on test collocation points on a regular grid
-    x = equi.get_collocation_points(kind="grid")
+    x = equi.grid()
     x.requires_grad_()
     psi_hat = model(x)
 
@@ -116,7 +119,7 @@ def train(niter: int, seed: int = 42, normalized: bool = True):
         psi_hat *= equi.psi_0
 
     #  Analytical solution
-    x = equi.get_collocation_points(kind="grid", normalized=False)
+    x = equi.grid(normalized=False)
     psi = equi.psi(x)
 
     #  Compute mae between model solution and analytical solution
@@ -139,4 +142,4 @@ def train(niter: int, seed: int = 42, normalized: bool = True):
 
 
 if __name__ == "__main__":
-    train(niter=500)
+    train()
