@@ -41,10 +41,9 @@ def test_high_beta_pde_closure(normalized: bool, ns: int):
     x.requires_grad_()
     if normalized:
         psi = equi.psi_(x)
-        residual = equi.pde_closure_(x, psi).item()
     else:
         psi = equi.psi(x)
-        residual = equi.pde_closure(x, psi).item()
+    residual = equi.pde_closure(x, psi).item()
     assert abs(residual) < 1e-10
 
 

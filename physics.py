@@ -8,55 +8,27 @@ from utils import grad, mae
 
 
 class Equilibrium:
-    def __init__(self, normalized: bool = False):
+    def __init__(self, normalized: bool = False) -> None:
 
         self.normalized = normalized
 
-        #  Set closure function
+        #  Set closure functions
         if normalized:
-            self.closure = self._closure_
+            self.pde_closure = self._pde_closure_
+            self.boundary_closure = self._boundary_closure_
+            self.data_closure = self._data_closure_
             self.mae_pde_loss = self._mae_pde_loss_
         else:
-            self.closure = self._closure
+            self.pde_closure = self._pde_closure
+            self.boundary_closure = self._boundary_closure
+            self.data_closure = self._data_closure
             self.mae_pde_loss = self._mae_pde_loss
 
-    def data_closure(self, x: Tensor, psi: Tensor) -> Tensor:
-        raise NotImplementedError()
-
-    def pde_closure(self, x: Tensor, psi: Tensor) -> Tensor:
-        raise NotImplementedError()
-
-    def boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
-        raise NotImplementedError()
-
-    def data_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
-        raise NotImplementedError()
-
-    def pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
-        raise NotImplementedError()
-
-    def boundary_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
-        raise NotImplementedError()
-
-    def _mae_pde_loss(self, x: Tensor, psi: Tensor) -> Tensor:
-        raise NotImplementedError()
-
-    def _mae_pde_loss_(self, x: Tensor, psi: Tensor) -> Tensor:
-        raise NotImplementedError()
-
-    def _closure(self, x: Tensor, psi: Tensor) -> Tensor:
+    def closure(self, x: Tensor, psi: Tensor) -> Tensor:
         loss = {}
         loss["data"] = self.data_closure(x, psi)
         loss["pde"] = self.pde_closure(x, psi)
         loss["boundary"] = self.boundary_closure(x, psi)
-        loss["tot"] = loss["pde"] + loss["boundary"]
-        return loss
-
-    def _closure_(self, x: Tensor, psi: Tensor) -> Tensor:
-        loss = {}
-        loss["data"] = self.data_closure_(x, psi)
-        loss["pde"] = self.pde_closure_(x, psi)
-        loss["boundary"] = self.boundary_closure_(x, psi)
         loss["tot"] = loss["pde"] + loss["boundary"]
         return loss
 
@@ -66,11 +38,35 @@ class Equilibrium:
     def fluxplot(self, *args, **kwargs):
         raise NotImplementedError()
 
+    def _data_closure(self, x: Tensor, psi: Tensor) -> Tensor:
+        raise NotImplementedError()
+
+    def _pde_closure(self, x: Tensor, psi: Tensor) -> Tensor:
+        raise NotImplementedError()
+
+    def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
+        raise NotImplementedError()
+
+    def _data_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+        raise NotImplementedError()
+
+    def _pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+        raise NotImplementedError()
+
+    def _boundary_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+        raise NotImplementedError()
+
+    def _mae_pde_loss(self, x: Tensor, psi: Tensor) -> Tensor:
+        raise NotImplementedError()
+
+    def _mae_pde_loss_(self, x: Tensor, psi: Tensor) -> Tensor:
+        raise NotImplementedError()
+
 
 class HighBetaEquilibrium(Equilibrium):
     def __init__(
         self, a: float = 0.1, A: float = 1, C: float = 10, R0: float = 0.6, **kwargs
-    ):
+    ) -> None:
         super().__init__(**kwargs)
 
         self.a = a
@@ -99,13 +95,13 @@ class HighBetaEquilibrium(Equilibrium):
             / self.psi_0
         )
 
-    def data_closure(self, x: Tensor, psi: Tensor) -> Tensor:
+    def _data_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         return ((psi - self.psi(x)) ** 2).sum()
 
-    def data_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+    def _data_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
         return ((psi - self.psi_(x)) ** 2).sum()
 
-    def pde_closure(self, x: Tensor, psi: Tensor) -> Tensor:
+    def _pde_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
         dpsi_drho = dpsi_dx[:, 0]
         dpsi_dtheta = dpsi_dx[:, 1]
@@ -134,7 +130,7 @@ class HighBetaEquilibrium(Equilibrium):
         #  TODO: avoid to compute error at the boundary to avoid division by 0
         return mae(residual[rho != self.a], denom[rho != self.a])
 
-    def pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+    def _pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
         dpsi_drho = dpsi_dx[:, 0]
         dpsi_dtheta = dpsi_dx[:, 1]
@@ -169,12 +165,12 @@ class HighBetaEquilibrium(Equilibrium):
         #  TODO: avoid to compute error at the boundary to avoid division by 0
         return mae(residual[rho != 1], denom[rho != 1])
 
-    def boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
+    def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         rho = x[:, 0]
         boundary = rho == self.a
         return (psi[boundary] ** 2).sum()
 
-    def boundary_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+    def _boundary_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
         rho = x[:, 0]
         boundary = rho == 1
         return (psi[boundary] ** 2).sum()
