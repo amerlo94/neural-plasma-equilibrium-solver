@@ -62,24 +62,30 @@ def test_high_beta_mae_pde_loss(normalized: bool, ns: int):
 
 @pytest.mark.parametrize("normalized", (True, False))
 @pytest.mark.parametrize("nbatches", (1, 5))
-def test_high_beta_points_different_than_grid(normalized: bool, nbatches: int):
-    equi = HighBetaEquilibrium(normalized=normalized)
-    grid = equi.grid()
-    for _, x in zip(range(nbatches), equi):
-        #  First and last ns are boundary points
-        assert (x[equi.ns : -equi.ns] != grid[equi.ns : -equi.ns]).all()
+@pytest.mark.parametrize("ns", (10,))
+def test_high_beta_points_different_than_grid(normalized: bool, nbatches: int, ns: int):
+    equi = HighBetaEquilibrium(normalized=normalized, ndomain=ns**2)
+    grid = equi.grid(ns=ns)
+    for _, (x, _) in zip(range(nbatches), equi):
+        #  The first point is on the axis in both cases
+        assert (x[1:] != grid[1:]).all()
 
 
 @pytest.mark.parametrize("normalized", (True, False))
 @pytest.mark.parametrize("nbatches", (1, 5))
 def test_high_beta_consistent_points(normalized: bool, nbatches: int):
     equi = HighBetaEquilibrium(normalized=normalized)
-    points = []
-    for _, x in zip(range(nbatches), equi):
-        points.append(x)
-    for i, x in zip(range(nbatches), equi):
-        assert (points[i] == x).all()
+    domain_points = []
+    boundary_points = []
+    for _, (x_domain, x_boundary) in zip(range(nbatches), equi):
+        domain_points.append(x_domain)
+        boundary_points.append(x_boundary)
+    for i, (x_domain, x_boundary) in zip(range(nbatches), equi):
+        assert (domain_points[i] == x_domain).all()
+        assert (boundary_points[i] == x_boundary).all()
     #  Points should be different if we change the equilibrium seed
     equi.seed = equi.seed - 1
-    for i, x in zip(range(nbatches), equi):
-        assert (points[i][equi.ns : -equi.ns] != x[equi.ns : -equi.ns]).all()
+    for i, (x_domain, x_boundary) in zip(range(nbatches), equi):
+        assert (domain_points[i][1:] != x_domain[1:]).all()
+        #  Check only theta value here
+        assert (boundary_points[i][:, 1] != x_boundary[:, 1]).all()

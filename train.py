@@ -4,59 +4,38 @@ import math
 import torch
 import matplotlib.pyplot as plt
 
-from physics import HighBetaEquilibrium
+from models import HighBetaMLP, GradShafranovMLP
+from physics import HighBetaEquilibrium, GradShafranovEquilibrium
 from utils import log_gradients, mae
 
 torch.set_default_tensor_type(torch.DoubleTensor)
 
 
-##########
-# Models #
-##########
+def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
 
-
-class MLP(torch.nn.Module):
-    def __init__(self, width: int = 16, a: float = 1.0, psi_0: float = 1.0):
-        super().__init__()
-        self.fc1 = torch.nn.Linear(2, width)
-        self.tanh = torch.nn.Tanh()
-        self.fc2 = torch.nn.Linear(width, 1)
-
-        #  Initialize last bias to unit, since psi(r=0)=psi_0
-        torch.nn.init.ones_(self.fc2.bias)
-        torch.nn.init.normal_(self.fc2.weight, std=3e-2)
-
-        #  Scaling parameters
-        self.a = a
-        self.psi_0 = psi_0
-
-    def forward(self, x):
-        rho = x[:, 0] / self.a
-        theta = x[:, 1]
-        #  Compute features
-        x1 = rho * torch.cos(theta)
-        x2 = rho * torch.sin(theta)
-        #  Compute psi
-        psi_hat = self.fc1(torch.stack((x1, x2), dim=1))
-        psi_hat = self.tanh(psi_hat / 2)
-        return self.psi_0 * self.fc2(psi_hat).view(-1)
-
-
-#########
-# Train #
-#########
-
-
-def train(nepochs: int = 100, seed: int = 42, normalized: bool = True):
+    assert equilibrium in ("high-beta", "grad-shafranov")
 
     torch.manual_seed(seed)
 
-    equi = HighBetaEquilibrium(normalized=normalized, seed=seed)
+    params = {"normalized": normalized, "seed": seed}
+    if equilibrium == "high-beta":
+        equi = HighBetaEquilibrium(**params)
+        params = {}
+        if not equi.normalized:
+            params = {"a": equi.a, "psi_0": equi.psi_0}
+        model = HighBetaMLP(**params)
+    else:
+        equi = GradShafranovEquilibrium(**params)
+        if not equi.normalized:
+            #  TODO: a = Rb[1]? psi_0 == phi_edge?
+            params = {
+                "R0": equi.Rb[0],
+                "a": equi.Rb[1],
+                "b": equi.Zb[1],
+                "psi_0": equi.phi_edge,
+            }
+        model = GradShafranovMLP(**params)
 
-    params = {}
-    if not equi.normalized:
-        params = {"a": equi.a, "psi_0": equi.psi_0}
-    model = MLP(**params)
     model.train()
 
     learning_rate = 1e-1
@@ -69,18 +48,20 @@ def train(nepochs: int = 100, seed: int = 42, normalized: bool = True):
         line_search_fn="strong_wolfe",
     )
 
-    nsteps = 5
+    nsteps = 1
     log_every_n_steps = 10
 
     for e in range(nepochs):
-        for s, x in zip(range(nsteps), equi):
+        for s, (x_domain, x_boundary) in zip(range(nsteps), equi):
 
-            x.requires_grad_()
+            x_domain.requires_grad_()
+            x_boundary.requires_grad_()
 
             def closure():
                 optimizer.zero_grad()
-                psi_hat = model(x)
-                loss = equi.closure(x, psi_hat)["tot"]
+                loss = equi.closure(
+                    x_domain, model(x_domain), x_boundary, model(x_boundary)
+                )
                 loss.backward()
                 return loss
 
@@ -90,14 +71,18 @@ def train(nepochs: int = 100, seed: int = 42, normalized: bool = True):
             global_step = e * nsteps + s
             if global_step % log_every_n_steps == log_every_n_steps - 1:
                 optimizer.zero_grad()
-                psi_hat = model(x)
-                loss = equi.closure(x, psi_hat)
+                loss = equi.closure(
+                    x_domain,
+                    model(x_domain),
+                    x_boundary,
+                    model(x_boundary),
+                    return_dict=True,
+                )
                 print(
-                    f"[{e:5d}/{nepochs:5d}][{global_step:5d}], "
+                    f"[{e:5d}/{nepochs:5d}][{s:3d}/{nsteps:3d}], "
                     + f"loss={loss['tot'].item():.2e}, "
                     + f"pde_loss={loss['pde'].item():.2e}, "
                     + f"boundary_loss={loss['boundary'].item():.2e}, "
-                    + f"data_loss={loss['data'].item():.2e}"
                 )
 
     #############
@@ -118,28 +103,35 @@ def train(nepochs: int = 100, seed: int = 42, normalized: bool = True):
     if equi.normalized:
         psi_hat *= equi.psi_0
 
-    #  Analytical solution
+    #  Get grid points
     x = equi.grid(normalized=False)
-    psi = equi.psi(x)
 
     #  Compute mae between model solution and analytical solution
-    psi_mae = mae(psi_hat, psi)
-    print(f"psi mae={psi_mae:.2e}")
+    if equilibrium == "high-beta":
+        psi = equi.psi(x)
+        psi_mae = mae(psi_hat, psi)
+        print(f"psi mae={psi_mae:.2e}")
 
     #  Plot magnetic flux
     fig, ax = plt.subplots(1, 1, tight_layout=True)
-    equi.fluxplot(x, psi, ax, linestyles="solid")
     equi.fluxplot(x, psi_hat, ax, linestyles="dashed")
+    if equilibrium == "high-beta":
+        equi.fluxplot(x, psi, ax, linestyles="solid")
 
     #  Plot scatter plot
-    fig, ax = plt.subplots(1, 1, tight_layout=True)
-    _, _, _, im = ax.hist2d(psi_hat.tolist(), psi.tolist(), bins=50, cmin=1)
-    ax.plot([psi.min(), psi.max()], [psi.min(), psi.max()], "r--", linewidth=2)
-    fig.colorbar(im, ax=ax)
-    ax.set_xlabel(r"$\hat{\Psi}$")
-    ax.set_ylabel(r"$\Psi$")
+    if equilibrium == "high-beta":
+        fig, ax = plt.subplots(1, 1, tight_layout=True)
+        _, _, _, im = ax.hist2d(psi_hat.tolist(), psi.tolist(), bins=50, cmin=1)
+        ax.plot([psi.min(), psi.max()], [psi.min(), psi.max()], "r--", linewidth=2)
+        fig.colorbar(im, ax=ax)
+        ax.set_xlabel(r"$\hat{\Psi}$")
+        ax.set_ylabel(r"$\Psi$")
+
+    #  Show figures
     plt.show()
 
 
 if __name__ == "__main__":
-    train()
+    #  TODO: add argparse or hydra
+    # train(equilibrium="high-beta", normalized=True, nepochs=200)
+    train(equilibrium="grad-shafranov", normalized=False, nepochs=200)
