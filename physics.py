@@ -278,6 +278,8 @@ class GradShafranovEquilibrium(Equilibrium):
     The VMEC input and output file are taken from the DESC repository:
 
     https://github.com/PlasmaControl/DESC/tree/master/tests/inputs
+
+    TODO: add test case f function instead of iota
     """
 
     def __init__(
@@ -286,7 +288,7 @@ class GradShafranovEquilibrium(Equilibrium):
         f: Tuple[float] = (1.0, -0.67),
         Rb: Tuple[float] = (3.51, -1.0, 0.106),
         Zb: Tuple[float] = (0, 1.47, 0.16),
-        phi_edge: float = 1.0,
+        psi_edge: float = 1.0,
         **kwargs
     ) -> None:
         super().__init__(**kwargs)
@@ -300,17 +302,18 @@ class GradShafranovEquilibrium(Equilibrium):
         self.Rb = torch.as_tensor(Rb)
         self.Zb = torch.as_tensor(Zb)
 
-        self.phi_edge = phi_edge
+        #  Boundary condition on psi
+        self.psi_edge = psi_edge
 
     @property
     def _mpol(self) -> int:
         return len(self.Rb)
 
     def p_fn(self, psi):
-        return self.pressure[0] * (1 + self.pressure[1] * psi**2) ** 2
+        return self.pressure[0] * (1 + self.pressure[1] * psi) ** 2
 
     def f_fn(self, psi):
-        return self.f[0] + self.f[1] * psi**2
+        return self.f[0] + self.f[1] * psi
 
     def __iter__(self):
 
@@ -321,13 +324,14 @@ class GradShafranovEquilibrium(Equilibrium):
             #  Domain collocation points
             #  Create grid by scaling the boundary from the LCFS to the axis
             #  Achtung: these are not flux surfaces!
-            domain = []
-            ns = int(math.sqrt(self.ndomain))
-            hs = torch.empty(ns)
             #  TODO: check if this geometric axis makes sense
             #  TODO: use ~sqrt(s) to evenly cover the area, however,
             #        by doing in this way, the axis region is not well covered
-            #  Always include an "axis"
+            #  TODO: speed up theta grid computation
+            #  Always include the geometrical axis
+            domain = []
+            ns = int(math.sqrt(self.ndomain))
+            hs = torch.empty(ns)
             hs[0] = 0
             hs[1:] = torch.sqrt(torch.rand(ns - 1, generator=generator))
             for s in hs:
@@ -383,7 +387,7 @@ class GradShafranovEquilibrium(Equilibrium):
         return 0
 
     def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
-        return ((psi - self.phi_edge) ** 2).sum()
+        return ((psi - self.psi_edge) ** 2).sum()
 
     def _boundary_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
         #  TODO: fix me!
@@ -432,21 +436,14 @@ class GradShafranovEquilibrium(Equilibrium):
 
         return ax
 
-    def _gridplot(self, x, ax):
-        """
-        Debug function to visualize equilibrium grid.
-
-        TODO: evaluate to make me a utility function
-        """
-
-        R = x[:, 0]
-        Z = x[:, 1]
+    def gridplot(self, x, ax):
+        """Plot equilibrium grid."""
 
         ns = int(math.sqrt(x.shape[0]))
 
         #  Create plotting grid
-        xx = R.view(ns, ns)
-        yy = Z.view(ns, ns)
+        xx = x[:, 0].view(ns, ns)
+        yy = x[:, 1].view(ns, ns)
 
         for i in range(ns):
             ax.scatter(xx[i], yy[i])

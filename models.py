@@ -5,7 +5,7 @@ from torch import Tensor
 
 
 class HighBetaMLP(torch.nn.Module):
-    def __init__(self, width: int = 16, a: float = 1.0, psi_0: float = 1.0):
+    def __init__(self, width: int = 16, a: float = 1.0, psi_0: float = 1.0) -> None:
         super().__init__()
         self.fc1 = torch.nn.Linear(2, width)
         self.tanh = torch.nn.Tanh()
@@ -39,7 +39,7 @@ class GradShafranovMLP(torch.nn.Module):
         a: float = 1.0,
         b: float = 1.0,
         psi_0: float = 1.0,
-    ):
+    ) -> None:
         super().__init__()
 
         self.fc1 = torch.nn.Linear(2, width)
@@ -58,6 +58,7 @@ class GradShafranovMLP(torch.nn.Module):
         #  Scale features
         R = (R - self.R0) / self.a
         Z = Z / self.b
+        #  Compute psi
         psi_hat = self.fc1(torch.stack([R, Z], dim=-1))
         psi_hat = self.tanh(psi_hat / 2)
         return self.psi_0 * self.fc2(psi_hat).view(-1)

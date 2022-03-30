@@ -17,6 +17,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
 
     torch.manual_seed(seed)
 
+    #  TODO: implement me with hydra
     params = {"normalized": normalized, "seed": seed}
     if equilibrium == "high-beta":
         equi = HighBetaEquilibrium(**params)
@@ -27,12 +28,11 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
     else:
         equi = GradShafranovEquilibrium(**params)
         if not equi.normalized:
-            #  TODO: a = Rb[1]? psi_0 == phi_edge?
             params = {
                 "R0": equi.Rb[0],
                 "a": equi.Rb[1],
                 "b": equi.Zb[1],
-                "psi_0": equi.phi_edge,
+                "psi_0": equi.psi_edge,
             }
         model = GradShafranovMLP(**params)
 
@@ -55,7 +55,6 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
         for s, (x_domain, x_boundary) in zip(range(nsteps), equi):
 
             x_domain.requires_grad_()
-            x_boundary.requires_grad_()
 
             def closure():
                 optimizer.zero_grad()
