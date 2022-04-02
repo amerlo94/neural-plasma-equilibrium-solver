@@ -43,18 +43,14 @@ def get_profile_from_wout(wout_path: str, profile: str):
     assert profile in ("p", "f")
     wout = get_wout(wout_path)
     #  Compute chi (i.e., domain) on half-mesh, normalized to boundary value
-    ns = wout["ns"][:].item()
-    iotas = wout["iotas"][:][1:].data
-    psi = np.linspace(0, 1, ns) - 0.5 * 1 / (ns - 1)
-    psi = psi[1:]
-    chi = np.empty(ns - 1)
-    for i in range(ns - 1):
-        chi[i] = np.trapz(iotas[:i], psi[:i])
-    chi = chi / chi[-1]
+    phi = wout["phi"][:].data
+    phi_edge = phi[-1]
+    chi = wout["chi"][:].data
+    chi_edge = chi[-1]
     if profile == "p":
         #  Get pressure
         p = np.polynomial.Polynomial(wout["am"][:].data)
-        p_fit = np.polynomial.Polynomial.fit(chi, p(chi), deg=2)
+        p_fit = np.polynomial.Polynomial.fit(chi / chi_edge, p(phi / phi_edge), deg=5)
         return p_fit.coef.tolist()
     #  Get Fourier coefficients for f
     rmnc = torch.as_tensor(wout["rmnc"][:]).clone()
@@ -66,6 +62,7 @@ def get_profile_from_wout(wout_path: str, profile: str):
     #  Move quantities to half-mesh
     R = 0.5 * (R[1:] + R[:-1])
     bsubv = bsubv[1:]
+    chi = 0.5 * (chi[1:] + chi[:-1])
     f = (R * bsubv).mean(dim=1)
     #  Perform fit for f, use fifth-order polynomial as in the paper
     f_fit = np.polynomial.Polynomial.fit(chi, f, deg=5)

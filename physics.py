@@ -282,8 +282,8 @@ class GradShafranovEquilibrium(Equilibrium):
 
     def __init__(
         self,
-        p: Tuple[float] = (400, -800, 400),
-        f: Tuple[float] = (2.7734, -0.0656, -0.0038, -0.0028, -0.0121, -0.0109),
+        p: Tuple[float] = (613.26, -881.85, 131.21, 40.69, 53.39, 40.68),
+        f: Tuple[float] = (2.7734, -0.0659, -0.0037, -0.0028, -0.0123, -0.0110),
         Rb: Tuple[float] = (3.51, -1.0, 0.106),
         Zb: Tuple[float] = (0, 1.47, 0.16),
         psi_edge: float = -0.665,

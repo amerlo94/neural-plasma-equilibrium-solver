@@ -134,7 +134,4 @@ def test_ift_analytical_values(basis, mpol, seed):
 def test_len_vmec_profile_coefs(wout_path, profile):
     """The fit should return a fifth-order polynomail."""
     coef = get_profile_from_wout(wout_path, profile)
-    if profile == "p":
-        assert len(coef) == 3
-    else:
-        assert len(coef) == 6
+    assert len(coef) == 6
