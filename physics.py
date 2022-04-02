@@ -309,7 +309,14 @@ class GradShafranovEquilibrium(Equilibrium):
 
     def p_fn(self, psi):
         psi_ = psi / self.psi_edge
-        return self.p[0] + self.p[1] * psi_ + self.p[2] * psi_**2
+        return (
+            self.p[0]
+            + self.p[1] * psi_
+            + self.p[2] * psi_**2
+            + self.p[3] * psi_**3
+            + self.p[4] * psi_**4
+            + self.p[5] * psi_**5
+        )
 
     def f_fn(self, psi):
         psi_ = psi / self.psi_edge
