@@ -278,23 +278,21 @@ class GradShafranovEquilibrium(Equilibrium):
     The VMEC input and output file are taken from the DESC repository:
 
     https://github.com/PlasmaControl/DESC/tree/master/tests/inputs
-
-    TODO: add test case f function instead of iota
     """
 
     def __init__(
         self,
-        pressure: Tuple[float] = (1.65e3, -1.0),
-        f: Tuple[float] = (1.0, -0.67),
+        p: Tuple[float] = (400, -800, 400),
+        f: Tuple[float] = (2.7734, -0.0656, -0.0038, -0.0028, -0.0121, -0.0109),
         Rb: Tuple[float] = (3.51, -1.0, 0.106),
         Zb: Tuple[float] = (0, 1.47, 0.16),
-        psi_edge: float = 1.0,
+        psi_edge: float = -0.665,
         **kwargs
     ) -> None:
         super().__init__(**kwargs)
 
         #  Pressure and current profile
-        self.pressure = torch.as_tensor(pressure)
+        self.p = torch.as_tensor(p)
         self.f = torch.as_tensor(f)
 
         #  Boundary definition
@@ -302,7 +300,7 @@ class GradShafranovEquilibrium(Equilibrium):
         self.Rb = torch.as_tensor(Rb)
         self.Zb = torch.as_tensor(Zb)
 
-        #  Boundary condition on psi
+        #  Boundary condition on psi, the poloidal flux (chi in VMEC)
         self.psi_edge = psi_edge
 
     @property
@@ -310,10 +308,19 @@ class GradShafranovEquilibrium(Equilibrium):
         return len(self.Rb)
 
     def p_fn(self, psi):
-        return self.pressure[0] * (1 + self.pressure[1] * psi) ** 2
+        psi_ = psi / self.psi_edge
+        return self.p[0] + self.p[1] * psi_ + self.p[2] * psi_**2
 
     def f_fn(self, psi):
-        return self.f[0] + self.f[1] * psi
+        psi_ = psi / self.psi_edge
+        return (
+            self.f[0]
+            + self.f[1] * psi_
+            + self.f[2] * psi_**2
+            + self.f[3] * psi_**3
+            + self.f[4] * psi_**4
+            + self.f[5] * psi_**5
+        )
 
     def __iter__(self):
 

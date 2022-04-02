@@ -4,7 +4,11 @@ import pytest
 import torch
 
 from physics import HighBetaEquilibrium
-from utils import grad
+from utils import grad, get_profile_from_wout, ift
+
+#########
+# Utils #
+#########
 
 
 def test_grad():
@@ -18,6 +22,11 @@ def test_grad():
         assert torch.allclose(
             a.sum(dim=-1), grad(y, x, retain_graph=True)[i], atol=0, rtol=0
         )
+
+
+###########
+# Physics #
+###########
 
 
 @pytest.mark.parametrize("ns", (5, 10, 50))
@@ -89,3 +98,43 @@ def test_high_beta_consistent_points(normalized: bool, nbatches: int):
         assert (domain_points[i][1:] != x_domain[1:]).all()
         #  Check only theta value here
         assert (boundary_points[i][:, 1] != x_boundary[:, 1]).all()
+
+
+@pytest.mark.parametrize("basis", ("cos", "sin"))
+@pytest.mark.parametrize("mpol", (2, 7, 14))
+@pytest.mark.parametrize("seed", (42, 24))
+def test_ift_analytical_values(basis, mpol, seed):
+    atol = 1e-14
+    generator = torch.Generator()
+    generator.manual_seed(seed)
+    xm = torch.randn((1, mpol), generator=generator, dtype=torch.float64)
+    res = ift(xm, basis)
+    if basis == "cos":
+        #  x(s, 0) = \sum xm
+        assert abs(res[0, 0] - xm.sum()) < atol
+        assert abs(res.mean() - xm[0, 0]) < atol
+    else:
+        #  x(s, 0) = 0
+        assert res[0, 0] == 0
+        #  x(s, pi) = 0
+        assert abs(res[0, int(res.shape[1] / 2)]) < atol
+        #  x(s, pi) = sum of odd modes with +- sign
+        res_ = 0
+        sign = 1
+        for m in range(mpol):
+            if m % 2 == 0:
+                continue
+            res_ += sign * xm[0, m]
+            sign *= -1
+        assert abs(res[0, int(res.shape[1] / 4)] - res_) < atol
+
+
+@pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc",))
+@pytest.mark.parametrize("profile", ("p", "f"))
+def test_len_vmec_profile_coefs(wout_path, profile):
+    """The fit should return a fifth-order polynomail."""
+    coef = get_profile_from_wout(wout_path, profile)
+    if profile == "p":
+        assert len(coef) == 3
+    else:
+        assert len(coef) == 6
