@@ -108,7 +108,7 @@ def test_ift_analytical_values(basis, mpol, seed):
     generator = torch.Generator()
     generator.manual_seed(seed)
     xm = torch.randn((1, mpol), generator=generator, dtype=torch.float64)
-    res = ift(xm, basis)
+    res = ift(xm, basis=basis, endpoint=False)
     if basis == "cos":
         #  x(s, 0) = \sum xm
         assert abs(res[0, 0] - xm.sum()) < atol
@@ -118,7 +118,7 @@ def test_ift_analytical_values(basis, mpol, seed):
         assert res[0, 0] == 0
         #  x(s, pi) = 0
         assert abs(res[0, int(res.shape[1] / 2)]) < atol
-        #  x(s, pi) = sum of odd modes with +- sign
+        #  x(s, pi/2) = sum of odd modes with +- sign
         res_ = 0
         sign = 1
         for m in range(mpol):
@@ -127,6 +127,22 @@ def test_ift_analytical_values(basis, mpol, seed):
             res_ += sign * xm[0, m]
             sign *= -1
         assert abs(res[0, int(res.shape[1] / 4)] - res_) < atol
+
+
+@pytest.mark.parametrize("basis", ("cos", "sin"))
+@pytest.mark.parametrize("ns", (0, 1, 10))
+@pytest.mark.parametrize("mpol", (1, 7, 14))
+@pytest.mark.parametrize("ntheta", (18, 36))
+def test_ift_shape(basis, ns, mpol, ntheta):
+    if ns == 0:
+        xm = torch.rand(mpol)
+    else:
+        xm = torch.randn((ns, mpol))
+    res = ift(xm, basis=basis, ntheta=ntheta)
+    if len(xm.shape) == 2:
+        assert res.shape == (ns, ntheta)
+    else:
+        assert res.shape[-1] == ntheta
 
 
 @pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc",))

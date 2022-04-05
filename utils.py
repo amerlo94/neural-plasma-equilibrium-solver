@@ -1,7 +1,7 @@
 """Utility functions."""
 
 import math
-from typing import Optional
+from typing import Optional, Union
 
 import netCDF4
 import numpy as np
@@ -57,27 +57,53 @@ def get_profile_from_wout(wout_path: str, profile: str):
     bsubvmnc = torch.as_tensor(wout["bsubvmnc"][:]).clone()
     assert rmnc.shape[0] == bsubvmnc.shape[0]
     #  Compute quantities
-    R = ift(rmnc, basis="cos")
-    bsubv = ift(bsubvmnc, basis="cos")
+    R = ift(rmnc, basis="cos", endpoint=False)
+    bsubv = ift(bsubvmnc, basis="cos", endpoint=False)
     #  Move quantities to half-mesh
     R = 0.5 * (R[1:] + R[:-1])
     bsubv = bsubv[1:]
     chi = 0.5 * (chi[1:] + chi[:-1])
     f = (R * bsubv).mean(dim=1)
     #  Perform fit for f, use fifth-order polynomial as in the paper
-    f_fit = np.polynomial.Polynomial.fit(chi, f, deg=5)
+    f_fit = np.polynomial.Polynomial.fit(chi / chi_edge, f, deg=5)
     return f_fit.coef.tolist()
 
 
-def ift(xm: Tensor, basis: str, ntheta: Optional[int] = 40):
+def get_flux_surfaces_from_wout(wout_path: str):
+    wout = get_wout(wout_path)
+    rmnc = torch.as_tensor(wout["rmnc"][:]).clone()
+    zmns = torch.as_tensor(wout["zmns"][:]).clone()
+    R = ift(rmnc, basis="cos")
+    Z = ift(zmns, basis="sin")
+    #  Return flux surfaces as grid
+    return torch.stack([R.view(-1), Z.view(-1)], dim=-1)
+
+
+def ift(
+    xm: Tensor,
+    basis: str,
+    ntheta: Optional[Union[int, Tensor]] = 40,
+    endpoint: Optional[bool] = True,
+):
     """The inverse Fourier transform."""
     assert basis in ("cos", "sin")
-    theta = torch.linspace(0, 2 * math.pi, ntheta + 1, dtype=xm.dtype)[:-1]
-    mpol = xm.shape[1]
-    tm = theta[..., None] * torch.arange(mpol, dtype=xm.dtype)[None, ...]
+    assert len(xm.shape) <= 2
+    if isinstance(ntheta, Tensor):
+        theta = ntheta
+    else:
+        if endpoint:
+            theta = torch.linspace(0, 2 * math.pi, ntheta, dtype=xm.dtype)
+        else:
+            theta = torch.linspace(0, 2 * math.pi, ntheta + 1, dtype=xm.dtype)[:-1]
+    mpol = xm.shape[-1]
+    tm = torch.outer(theta, torch.arange(mpol, dtype=xm.dtype))
     if basis == "cos":
         tm = torch.cos(tm)
     else:
         tm = torch.sin(tm)
+    #  One flux surface only
+    if len(xm.shape) == 1:
+        return (tm * xm).sum(dim=1)
+    #  Multiple flux surfaces
     tm = tm[None, ...]
-    return torch.einsum("stm,sm->st", tm, xm)
+    return torch.einsum("stm,sm->st", tm, xm).contiguous()

@@ -1,11 +1,11 @@
 import math
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 from torch import Tensor
 from torch.utils.data import IterableDataset
 
-from utils import grad, mae
+from utils import ift, grad, mae
 
 
 mu0 = 4 * math.pi * 1e-7
@@ -38,11 +38,13 @@ class Equilibrium(IterableDataset):
         if normalized:
             self.pde_closure = self._pde_closure_
             self.boundary_closure = self._boundary_closure_
+            self.axis_closure = self._axis_closure_
             self.data_closure = self._data_closure_
             self.mae_pde_loss = self._mae_pde_loss_
         else:
             self.pde_closure = self._pde_closure
             self.boundary_closure = self._boundary_closure
+            self.axis_closure = self._axis_closure
             self.data_closure = self._data_closure
             self.mae_pde_loss = self._mae_pde_loss
 
@@ -52,12 +54,17 @@ class Equilibrium(IterableDataset):
         psi_domain: Tensor,
         x_boundary: Tensor,
         psi_boundary: Tensor,
-        return_dict: bool = False,
+        x_axis: Optional[Tensor] = None,
+        psi_axis: Optional[Tensor] = None,
+        return_dict: Optional[bool] = False,
     ) -> Tensor:
         loss = {}
         loss["pde"] = self.pde_closure(x_domain, psi_domain)
         loss["boundary"] = self.boundary_closure(x_boundary, psi_boundary)
         loss["tot"] = loss["pde"] + loss["boundary"]
+        if x_axis is not None:
+            loss["axis"] = self.axis_closure(x_axis, psi_axis)
+            loss["tot"] += loss["axis"]
         if return_dict:
             return loss
         return loss["tot"]
@@ -74,6 +81,9 @@ class Equilibrium(IterableDataset):
     def _pde_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         raise NotImplementedError
 
+    def _axis_closure(self, x: Tensor, psi: Tensor) -> Tensor:
+        raise NotImplementedError
+
     def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         raise NotImplementedError
 
@@ -84,6 +94,9 @@ class Equilibrium(IterableDataset):
         raise NotImplementedError
 
     def _boundary_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+        raise NotImplementedError
+
+    def _axis_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
         raise NotImplementedError
 
     def _mae_pde_loss(self, x: Tensor, psi: Tensor) -> Tensor:
@@ -284,8 +297,10 @@ class GradShafranovEquilibrium(Equilibrium):
         self,
         p: Tuple[float] = (613.26, -881.85, 131.21, 40.69, 53.39, 40.68),
         f: Tuple[float] = (2.7734, -0.0659, -0.0037, -0.0028, -0.0123, -0.0110),
-        Rb: Tuple[float] = (3.51, -1.0, 0.106),
-        Zb: Tuple[float] = (0, 1.47, 0.16),
+        Rb: Tuple[float] = (3.51, 1.0, 0.106),
+        Zb: Tuple[float] = (0, 1.47, -0.16),
+        Ra: float = 3.71270844,
+        Za: float = 0.0,
         psi_edge: float = -0.665,
         **kwargs
     ) -> None:
@@ -299,6 +314,13 @@ class GradShafranovEquilibrium(Equilibrium):
         assert len(Rb) == len(Zb)
         self.Rb = torch.as_tensor(Rb)
         self.Zb = torch.as_tensor(Zb)
+
+        #  Initial guess for the axis
+        self.Ra = Ra
+        self.Za = Za
+        #  Running axis location
+        self._Ra = Ra
+        self._Za = Za
 
         #  Boundary condition on psi, the poloidal flux (chi in VMEC)
         self.psi_edge = psi_edge
@@ -338,22 +360,19 @@ class GradShafranovEquilibrium(Equilibrium):
             #  Domain collocation points
             #  Create grid by scaling the boundary from the LCFS to the axis
             #  Achtung: these are not flux surfaces!
-            #  TODO: check if this geometric axis makes sense
-            #  TODO: use ~sqrt(s) to evenly cover the area, however,
-            #        by doing in this way, the axis region is not well covered
-            #  TODO: speed up theta grid computation
-            #  Always include the geometrical axis
             domain = []
             ns = int(math.sqrt(self.ndomain))
-            hs = torch.empty(ns)
-            hs[0] = 0
-            hs[1:] = torch.sqrt(torch.rand(ns - 1, generator=generator))
+            #  TODO: use ~sqrt(s) to evenly cover the area, however,
+            #        by doing in this way, the axis region is not well covered
+            #  TODO: use random point and speed up theta grid computation with ift
+            # hs = torch.rand(ns, generator=generator)**2
+            hs = torch.linspace(0, 1, ns + 2)[1:-1] ** 2
             for s in hs:
                 theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
                 Rb = torch.as_tensor([self.Rb_fn(t) for t in theta])
                 Zb = torch.as_tensor([self.Zb_fn(t) for t in theta])
-                R = (Rb - self.Rb[0]) * s + self.Rb[0]
-                Z = (Zb - self.Zb[0]) * s + self.Zb[0]
+                R = (Rb - self._Ra) * s + self._Ra
+                Z = (Zb - self._Za) * s + self._Za
                 domain.append(torch.stack([R, Z], dim=-1))
             domain = torch.cat(domain)
             #  Boundary collocation points
@@ -361,7 +380,12 @@ class GradShafranovEquilibrium(Equilibrium):
             R = torch.as_tensor([self.Rb_fn(t) for t in theta])
             Z = torch.as_tensor([self.Zb_fn(t) for t in theta])
             boundary = torch.stack([R, Z], dim=-1)
-            yield domain, boundary
+            #  Axis point
+            axis = torch.Tensor([self._Ra, self._Za]).view(1, 2)
+            #  TODO: is it ok to have the same number of points as boundary, but effective always the same?
+            #        the same can be achieved with a factor in front of the loss
+            # axis = axis.expand(self.nboundary, 2)
+            yield domain, boundary, axis
 
     def Rb_fn(self, theta):
         basis = torch.cos(torch.as_tensor([i * theta for i in range(self._mpol)]))
@@ -377,7 +401,6 @@ class GradShafranovEquilibrium(Equilibrium):
         dpsi_dZ = dpsi_dx[:, 1]
         dpsi2_dR2 = grad(dpsi_dR, x, create_graph=True)[:, 0]
         dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
-        #  TODO: check this or implement me manually since it is parametric
         p = self.p_fn(psi)
         dp_dpsi = grad(p, psi, create_graph=True)
         f = self.f_fn(psi)
@@ -407,14 +430,20 @@ class GradShafranovEquilibrium(Equilibrium):
         #  TODO: fix me!
         pass
 
+    def _axis_closure(self, x: Tensor, psi: Tensor) -> Tensor:
+        return (psi**2).sum()
+
+    def _axis_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+        #  TODO: fix me!
+        pass
+
     def grid(self, ns: int = None, normalized: bool = None) -> Tensor:
 
         if ns is None:
             ns = int(math.sqrt(self.ndomain))
 
-        theta = torch.linspace(-math.pi, math.pi, ns)
-        Rb = torch.as_tensor([self.Rb_fn(t) for t in theta])
-        Zb = torch.as_tensor([self.Zb_fn(t) for t in theta])
+        Rb = ift(self.Rb, basis="cos", ntheta=ns)
+        Zb = ift(self.Zb, basis="sin", ntheta=ns)
 
         grid = []
 
@@ -422,8 +451,8 @@ class GradShafranovEquilibrium(Equilibrium):
         #  Achtung: these are not flux surfaces!
         hs = 1 / (ns - 1)
         for i in range(ns):
-            R = (Rb - self.Rb[0]) * i * hs + self.Rb[0]
-            Z = (Zb - self.Zb[0]) * i * hs + self.Zb[0]
+            R = (Rb - self._Ra) * i * hs + self._Ra
+            Z = (Zb - self._Za) * i * hs + self._Za
             grid.append(torch.stack([R, Z], dim=-1))
 
         return torch.cat(grid)
@@ -442,7 +471,8 @@ class GradShafranovEquilibrium(Equilibrium):
         #  Detach and reshape tensors
         psi = psi.view(xx.shape)
 
-        ax.contour(xx, yy, psi, levels=10, **kwargs)
+        cs = ax.contour(xx, yy, psi, levels=10, **kwargs)
+        ax.clabel(cs, inline=True, fontsize=10)
         ax.axis("equal")
 
         ax.set_xlabel(r"$R [m]$")
@@ -450,16 +480,24 @@ class GradShafranovEquilibrium(Equilibrium):
 
         return ax
 
-    def gridplot(self, x, ax):
-        """Plot equilibrium grid."""
+    def fluxsurfacesplot(self, x, ax, ns: Optional[int] = None):
+        """
+        Plot flux surfaces on (R, Z) plane.
 
-        ns = int(math.sqrt(x.shape[0]))
+        TODO: improve ns handling.
+        """
+
+        assert len(x.shape) == 2
+
+        if ns is None:
+            #  Infer number of flux surfaces
+            ns = int(math.sqrt(x.shape[0]))
 
         #  Create plotting grid
-        xx = x[:, 0].view(ns, ns)
-        yy = x[:, 1].view(ns, ns)
+        xx = x[:, 0].view(ns, -1)
+        yy = x[:, 1].view(ns, -1)
 
-        for i in range(ns):
+        for i in torch.linspace(0, ns + 1, 10, dtype=torch.int)[:-1]:  # range(ns):
             ax.scatter(xx[i], yy[i])
         ax.axis("equal")
 

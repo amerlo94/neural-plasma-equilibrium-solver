@@ -52,6 +52,10 @@ class GradShafranovMLP(torch.nn.Module):
         self.b = b
         self.psi_0 = psi_0
 
+        #  Initialize last bias to zero, since psi(Ra, Za)=0
+        torch.nn.init.zeros_(self.fc2.bias)
+        torch.nn.init.normal_(self.fc2.weight, std=3e-2)
+
     def forward(self, x: Tensor) -> Tensor:
         R = x[:, 0]
         Z = x[:, 1]

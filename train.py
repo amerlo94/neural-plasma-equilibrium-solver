@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from models import HighBetaMLP, GradShafranovMLP
 from physics import HighBetaEquilibrium, GradShafranovEquilibrium
-from utils import log_gradients, mae
+from utils import log_gradients, mae, get_flux_surfaces_from_wout
 
 torch.set_default_tensor_type(torch.DoubleTensor)
 
@@ -17,7 +17,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
 
     torch.manual_seed(seed)
 
-    #  TODO: implement me with hydra
+    #  TODO: implement me argparse or make me cleaner
     params = {"normalized": normalized, "seed": seed}
     if equilibrium == "high-beta":
         equi = HighBetaEquilibrium(**params)
@@ -48,18 +48,24 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
         line_search_fn="strong_wolfe",
     )
 
+    #  Number of optimizer steps per epoch (i.e., number of batches)
     nsteps = 1
     log_every_n_steps = 10
 
     for e in range(nepochs):
-        for s, (x_domain, x_boundary) in zip(range(nsteps), equi):
+        for s, (x_domain, x_boundary, x_axis) in zip(range(nsteps), equi):
 
             x_domain.requires_grad_()
 
             def closure():
                 optimizer.zero_grad()
                 loss = equi.closure(
-                    x_domain, model(x_domain), x_boundary, model(x_boundary)
+                    x_domain,
+                    model(x_domain),
+                    x_boundary,
+                    model(x_boundary),
+                    x_axis,
+                    model(x_axis),
                 )
                 loss.backward()
                 return loss
@@ -75,14 +81,14 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
                     model(x_domain),
                     x_boundary,
                     model(x_boundary),
+                    x_axis,
+                    model(x_axis),
                     return_dict=True,
                 )
-                print(
-                    f"[{e:5d}/{nepochs:5d}][{s:3d}/{nsteps:3d}], "
-                    + f"loss={loss['tot'].item():.2e}, "
-                    + f"pde_loss={loss['pde'].item():.2e}, "
-                    + f"boundary_loss={loss['boundary'].item():.2e}, "
-                )
+                string = f"[{e:5d}/{nepochs:5d}][{s:3d}/{nsteps:3d}], "
+                for k, v in loss.items():
+                    string += f"{k}={v.item():.2e}, "
+                print(string)
 
     #############
     # Visualize #
@@ -115,7 +121,13 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
     fig, ax = plt.subplots(1, 1, tight_layout=True)
     equi.fluxplot(x, psi_hat, ax, linestyles="dashed")
     if equilibrium == "high-beta":
+        #  Plot analytical solution
         equi.fluxplot(x, psi, ax, linestyles="solid")
+    elif equilibrium == "grad-shafranov":
+        #  Plot VMEC flux surfaces
+        #  TODO: bound VMEC solution to equilibrium, get ns from object?
+        rz = get_flux_surfaces_from_wout("data/wout_DSHAPE.nc")
+        equi.fluxsurfacesplot(rz, ax, ns=256)
 
     #  Plot scatter plot
     if equilibrium == "high-beta":
@@ -131,6 +143,6 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
 
 
 if __name__ == "__main__":
-    #  TODO: add argparse or hydra
+    #  TODO: add argparse with default configuration
     # train(equilibrium="high-beta", normalized=True, nepochs=200)
     train(equilibrium="grad-shafranov", normalized=False, nepochs=200)
