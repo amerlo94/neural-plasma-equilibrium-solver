@@ -145,7 +145,7 @@ def test_ift_shape(basis, ns, mpol, ntheta):
         assert res.shape[-1] == ntheta
 
 
-@pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc",))
+@pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc", "data/wout_SOLOVEV.nc"))
 @pytest.mark.parametrize("profile", ("p", "f"))
 def test_len_vmec_profile_coefs(wout_path, profile):
     """The fit should return a fifth-order polynomail."""

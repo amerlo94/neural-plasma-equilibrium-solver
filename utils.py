@@ -50,7 +50,9 @@ def get_profile_from_wout(wout_path: str, profile: str):
     if profile == "p":
         #  Get pressure
         p = np.polynomial.Polynomial(wout["am"][:].data)
-        p_fit = np.polynomial.Polynomial.fit(chi / chi_edge, p(phi / phi_edge), deg=5)
+        p_fit = np.polynomial.Polynomial.fit(
+            chi / chi_edge, p(phi / phi_edge), deg=5, domain=[0, 1], window=[0, 1]
+        )
         return p_fit.coef.tolist()
     #  Get Fourier coefficients for f
     rmnc = torch.as_tensor(wout["rmnc"][:]).clone()
@@ -65,7 +67,9 @@ def get_profile_from_wout(wout_path: str, profile: str):
     chi = 0.5 * (chi[1:] + chi[:-1])
     f = (R * bsubv).mean(dim=1)
     #  Perform fit for f, use fifth-order polynomial as in the paper
-    f_fit = np.polynomial.Polynomial.fit(chi / chi_edge, f, deg=5)
+    f_fit = np.polynomial.Polynomial.fit(
+        chi / chi_edge, f, deg=5, domain=[0, 1], window=[0, 1]
+    )
     return f_fit.coef.tolist()
 
 
@@ -75,8 +79,10 @@ def get_flux_surfaces_from_wout(wout_path: str):
     zmns = torch.as_tensor(wout["zmns"][:]).clone()
     R = ift(rmnc, basis="cos")
     Z = ift(zmns, basis="sin")
+    #  Return poloidal on the flux surfaces also
+    chi = torch.as_tensor(wout["chi"][:]).clone()
     #  Return flux surfaces as grid
-    return torch.stack([R.view(-1), Z.view(-1)], dim=-1)
+    return torch.stack([R.view(-1), Z.view(-1)], dim=-1), chi
 
 
 def ift(

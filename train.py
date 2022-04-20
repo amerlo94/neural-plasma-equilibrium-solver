@@ -52,6 +52,12 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
     nsteps = 1
     log_every_n_steps = 10
 
+    # #######
+    # rz, psi = get_flux_surfaces_from_wout("data/wout_SOLOVEV.nc")
+    # psi = torch.repeat_interleave(psi, int(len(rz) / len(psi)))
+    # rz.requires_grad_()
+    # #####
+
     for e in range(nepochs):
         for s, (x_domain, x_boundary, x_axis) in zip(range(nsteps), equi):
 
@@ -126,8 +132,9 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
     elif equilibrium == "grad-shafranov":
         #  Plot VMEC flux surfaces
         #  TODO: bound VMEC solution to equilibrium, get ns from object?
-        rz = get_flux_surfaces_from_wout("data/wout_DSHAPE.nc")
-        equi.fluxsurfacesplot(rz, ax, ns=256)
+        # rz, psi = get_flux_surfaces_from_wout("data/wout_DSHAPE.nc")
+        rz, psi = get_flux_surfaces_from_wout("data/wout_SOLOVEV.nc")
+        equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
 
     #  Plot scatter plot
     if equilibrium == "high-beta":

@@ -291,18 +291,28 @@ class GradShafranovEquilibrium(Equilibrium):
     The VMEC input and output file are taken from the DESC repository:
 
     https://github.com/PlasmaControl/DESC/tree/master/tests/inputs
+
+    TODO: update docstring with default SOLOVEV equilibrium
     """
 
     def __init__(
         self,
-        p: Tuple[float] = (613.26, -881.85, 131.21, 40.69, 53.39, 40.68),
-        f: Tuple[float] = (2.7734, -0.0659, -0.0037, -0.0028, -0.0123, -0.0110),
-        Rb: Tuple[float] = (3.51, 1.0, 0.106),
-        Zb: Tuple[float] = (0, 1.47, -0.16),
-        Ra: float = 3.71270844,
+        p: Tuple[float] = (0.125 / mu0, -0.125 / mu0),
+        f: Tuple[float] = (3.2359, -0.3409),
+        Rb: Tuple[float] = (3.99, 1.026, -0.068),
+        Zb: Tuple[float] = (0, 1.58, 0.01),
+        Ra: float = 3.98923536,
         Za: float = 0.0,
-        psi_edge: float = -0.665,
-        **kwargs
+        psi_edge: float = -1,
+        #  TODO: DSHAPE input, put me into a dshape.yaml file
+        # p: Tuple[float] = (613.26, -881.85, 131.21, 40.69, 53.39, 40.68),
+        # f: Tuple[float] = (2.7734, -0.0659, -0.0037, -0.0028, -0.0123, -0.0110),
+        # Rb: Tuple[float] = (3.51, 1.0, 0.106),
+        # Zb: Tuple[float] = (0, 1.47, -0.16),
+        # Ra: float = 3.71270844,
+        # Za: float = 0.0,
+        # psi_edge: float = -0.665,
+        **kwargs,
     ) -> None:
         super().__init__(**kwargs)
 
@@ -331,25 +341,17 @@ class GradShafranovEquilibrium(Equilibrium):
 
     def p_fn(self, psi):
         psi_ = psi / self.psi_edge
-        return (
-            self.p[0]
-            + self.p[1] * psi_
-            + self.p[2] * psi_**2
-            + self.p[3] * psi_**3
-            + self.p[4] * psi_**4
-            + self.p[5] * psi_**5
-        )
+        p = 0
+        for i, coef in enumerate(self.p):
+            p += coef * psi_**i
+        return p
 
     def f_fn(self, psi):
         psi_ = psi / self.psi_edge
-        return (
-            self.f[0]
-            + self.f[1] * psi_
-            + self.f[2] * psi_**2
-            + self.f[3] * psi_**3
-            + self.f[4] * psi_**4
-            + self.f[5] * psi_**5
-        )
+        f = 0
+        for i, coef in enumerate(self.f):
+            f += coef * psi_**i
+        return f
 
     def __iter__(self):
 
@@ -362,8 +364,6 @@ class GradShafranovEquilibrium(Equilibrium):
             #  Achtung: these are not flux surfaces!
             domain = []
             ns = int(math.sqrt(self.ndomain))
-            #  TODO: use ~sqrt(s) to evenly cover the area, however,
-            #        by doing in this way, the axis region is not well covered
             #  TODO: use random point and speed up theta grid computation with ift
             # hs = torch.rand(ns, generator=generator)**2
             hs = torch.linspace(0, 1, ns + 2)[1:-1] ** 2
@@ -472,7 +472,7 @@ class GradShafranovEquilibrium(Equilibrium):
         psi = psi.view(xx.shape)
 
         cs = ax.contour(xx, yy, psi, levels=10, **kwargs)
-        ax.clabel(cs, inline=True, fontsize=10)
+        ax.clabel(cs, inline=True, fontsize=10, fmt="%1.3f")
         ax.axis("equal")
 
         ax.set_xlabel(r"$R [m]$")
@@ -480,11 +480,18 @@ class GradShafranovEquilibrium(Equilibrium):
 
         return ax
 
-    def fluxsurfacesplot(self, x, ax, ns: Optional[int] = None):
+    def fluxsurfacesplot(
+        self,
+        x,
+        ax,
+        psi: Optional[Tensor] = None,
+        ns: Optional[int] = None,
+        nplot: Optional[int] = 10,
+    ):
         """
         Plot flux surfaces on (R, Z) plane.
 
-        TODO: improve ns handling.
+        TODO: improve ns and nplot handling.
         """
 
         assert len(x.shape) == 2
@@ -497,8 +504,14 @@ class GradShafranovEquilibrium(Equilibrium):
         xx = x[:, 0].view(ns, -1)
         yy = x[:, 1].view(ns, -1)
 
-        for i in torch.linspace(0, ns + 1, 10, dtype=torch.int)[:-1]:  # range(ns):
-            ax.scatter(xx[i], yy[i])
+        if nplot > ns:
+            nplot = ns
+
+        for i in torch.linspace(0, ns - 1, nplot, dtype=torch.int):
+            ax.plot(xx[i], yy[i])
+            if psi is not None:
+                pi_half = int(xx.shape[1] / 4)
+                ax.text(xx[i][pi_half], yy[i][pi_half], f"{psi[i].item():.3f}")
         ax.axis("equal")
 
         return ax
