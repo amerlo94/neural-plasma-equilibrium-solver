@@ -32,7 +32,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
                 "R0": equi.Rb[0],
                 "a": equi.Rb[1],
                 "b": equi.Zb[1],
-                "psi_0": equi.psi_edge,
+                "psi_0": equi.psi_0,
             }
         model = GradShafranovMLP(**params)
 

@@ -303,7 +303,7 @@ class GradShafranovEquilibrium(Equilibrium):
         Zb: Tuple[float] = (0, 1.58, 0.01),
         Ra: float = 3.98923536,
         Za: float = 0.0,
-        psi_edge: float = -1,
+        psi_0: float = -1,
         #  TODO: DSHAPE input, put me into a dshape.yaml file
         # p: Tuple[float] = (613.26, -881.85, 131.21, 40.69, 53.39, 40.68),
         # f: Tuple[float] = (2.7734, -0.0659, -0.0037, -0.0028, -0.0123, -0.0110),
@@ -311,7 +311,7 @@ class GradShafranovEquilibrium(Equilibrium):
         # Zb: Tuple[float] = (0, 1.47, -0.16),
         # Ra: float = 3.71270844,
         # Za: float = 0.0,
-        # psi_edge: float = -0.665,
+        # psi_0: float = -0.665,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -332,22 +332,22 @@ class GradShafranovEquilibrium(Equilibrium):
         self._Ra = Ra
         self._Za = Za
 
-        #  Boundary condition on psi, the poloidal flux (chi in VMEC)
-        self.psi_edge = psi_edge
+        #  Boundary condition on psi (i.e., psi_edge), the poloidal flux (chi in VMEC)
+        self.psi_0 = psi_0
 
     @property
     def _mpol(self) -> int:
         return len(self.Rb)
 
     def p_fn(self, psi):
-        psi_ = psi / self.psi_edge
+        psi_ = psi / self.psi_0
         p = 0
         for i, coef in enumerate(self.p):
             p += coef * psi_**i
         return p
 
     def f_fn(self, psi):
-        psi_ = psi / self.psi_edge
+        psi_ = psi / self.psi_0
         f = 0
         for i, coef in enumerate(self.f):
             f += coef * psi_**i
@@ -424,7 +424,7 @@ class GradShafranovEquilibrium(Equilibrium):
         return 0
 
     def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
-        return ((psi - self.psi_edge) ** 2).sum()
+        return ((psi - self.psi_0) ** 2).sum()
 
     def _boundary_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
         #  TODO: fix me!
