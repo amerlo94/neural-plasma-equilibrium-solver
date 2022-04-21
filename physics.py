@@ -335,6 +335,13 @@ class GradShafranovEquilibrium(Equilibrium):
         #  Boundary condition on psi (i.e., psi_edge), the poloidal flux (chi in VMEC)
         self.psi_0 = psi_0
 
+        #  Normalized Grad Shafranov equilibrium is not supported
+        assert self.normalized == False
+
+        self._axis_closure_ = None
+        self._boundary_closure_ = None
+        self._pde_closure_ = None
+
     @property
     def _mpol(self) -> int:
         return len(self.Rb)
@@ -415,27 +422,11 @@ class GradShafranovEquilibrium(Equilibrium):
         #  TODO: fix me!
         return 0
 
-    def _pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
-        #  TODO: fix me!
-        pass
-
-    def _mae_pde_loss_(self, x: Tensor, psi: Tensor) -> Tensor:
-        #  TODO: fix me!
-        return 0
-
     def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         return ((psi - self.psi_0) ** 2).sum()
 
-    def _boundary_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
-        #  TODO: fix me!
-        pass
-
     def _axis_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         return (psi**2).sum()
-
-    def _axis_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
-        #  TODO: fix me!
-        pass
 
     def grid(self, ns: int = None, normalized: bool = None) -> Tensor:
 

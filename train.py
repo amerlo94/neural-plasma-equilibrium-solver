@@ -27,6 +27,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
         model = HighBetaMLP(**params)
     else:
         equi = GradShafranovEquilibrium(**params)
+        params = {}
         if not equi.normalized:
             params = {
                 "R0": equi.Rb[0],
