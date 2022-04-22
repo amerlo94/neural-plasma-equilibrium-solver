@@ -453,7 +453,7 @@ class GradShafranovEquilibrium(Equilibrium):
         denom = dpsi2_dR2 + dpsi2_dZ2 + mu0 ** 3 * dp_dpsi + f * df_dpsi
         return mae(residual, denom)
 
-    def a_pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+    def _pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
         dpsi_drho = dpsi_dx[:, 0]
         dpsi_dZ = dpsi_dx[:, 1]
@@ -471,7 +471,7 @@ class GradShafranovEquilibrium(Equilibrium):
                                     f * rho * df_dpsi)
         return (residual**2).sum()
 
-    def _pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+    def a_pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
         dpsi_dR = dpsi_dx[:, 0]
         dpsi_dZ = dpsi_dx[:, 1]
