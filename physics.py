@@ -436,8 +436,75 @@ class GradShafranovEquilibrium(Equilibrium):
         return (residual**2).sum()
 
     def _mae_pde_loss(self, x: Tensor, psi: Tensor) -> Tensor:
-        #  TODO: fix me!
-        return 0
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_dR = dpsi_dx[:, 0]
+        dpsi_dZ = dpsi_dx[:, 1]
+        dpsi2_dR2 = grad(dpsi_dR, x, create_graph=True)[:, 0]
+        dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
+        p = self.p_fn(psi)
+        dp_dpsi = grad(p, psi, create_graph=True)
+        f = self.f_fn(psi)
+        df_dpsi = grad(f, psi, create_graph=True)
+        R = x[:, 0]
+        residual = - dpsi_dR * 1/R
+        denom = dpsi2_dR2 + dpsi2_dZ2 + mu0 ** 3 * dp_dpsi + f * df_dpsi
+        return mae(residual, denom)
+
+    def a_pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_drho = dpsi_dx[:, 0]
+        dpsi_dZ = dpsi_dx[:, 1]
+        dpsi2_drho2 = grad(dpsi_drho, x, create_graph=True)[:, 0]
+        dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
+        p = self.p_fn(psi)
+        dp_dpsi = grad(p, psi, create_graph=True)
+        f = self.f_fn(psi)
+        df_dpsi = grad(f, psi, create_graph=True)
+        rho = x[:, 0]
+        residual = - self.psi_edge2 * self.Zmax2 * dpsi_drho + \
+            self.psi_edge3 * rho * (self.Zmax2 * dpsi2_drho2 +
+                                    self.a2 * dpsi2_dZ2) + \
+            self.a2 * self.Zmax2 * (mu0 * rho ** 3 * self.a2 * dp_dpsi +
+                                    f * rho * df_dpsi)
+        return (residual**2).sum()
+
+    def _pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_dR = dpsi_dx[:, 0]
+        dpsi_dZ = dpsi_dx[:, 1]
+        dpsi2_dR2 = grad(dpsi_dR, x, create_graph=True)[:, 0]
+        dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
+        p = self.p_fn(psi)
+        dp_dpsi = grad(p, psi, create_graph=True)
+        f = self.f_fn(psi)
+        df_dpsi = grad(f, psi, create_graph=True)
+        R = x[:, 0]
+        residual = -1 / R * dpsi_dR + dpsi2_dR2
+        residual += (self.Rb[1] / self.Zb[1]) ** 2 * dpsi2_dZ2
+        residual += mu0 * (self.Rb[1] ** 2 / self.psi_0) ** 2 * R ** 2 * dp_dpsi
+        residual += (self.Rb[1] / self.psi_0) ** 2 * f * df_dpsi
+        return (residual ** 2).sum()
+
+    def _boundary_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+        return ((psi - 1.0) ** 2).sum()
+
+    def _mae_pde_loss_(self, x: Tensor, psi: Tensor) -> Tensor:
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_drho = dpsi_dx[:, 0]
+        dpsi_dZ = dpsi_dx[:, 1]
+        dpsi2_drho2 = grad(dpsi_drho, x, create_graph=True)[:, 0]
+        dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
+        p = self.p_fn(psi)
+        dp_dpsi = grad(p, psi, create_graph=True)
+        f = self.f_fn(psi)
+        df_dpsi = grad(f, psi, create_graph=True)
+        rho = x[:, 0]
+        residual = - self.psi_edge2 * self.Zmax2 * dpsi_drho
+        denom = self.psi_edge3 * rho * (self.Zmax2 * dpsi2_drho2 +
+                                           self.a2 * dpsi2_dZ2) + \
+                   self.a2 * self.Zmax2 * (mu0 * rho ** 3 * self.a2 * dp_dpsi +
+                                           f * rho * df_dpsi)
+        return mae(residual, denom)
 
     def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         return ((psi - self.psi_0) ** 2).sum()
@@ -459,6 +526,10 @@ class GradShafranovEquilibrium(Equilibrium):
         #  Get axis from R at boundary
         Ra = math.sqrt(self.Rb.sum().item() ** 2 + math.sqrt(8 / p0))
         return f0 * l2 * Z**2 + p0 / 8 * (R**2 - Ra**2) ** 2
+
+    def _axis_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+        # normalized or not, psi=0 on axis
+        return (psi**2).sum()
 
     def grid(self, ns: int = None, normalized: bool = None) -> Tensor:
 
@@ -548,3 +619,13 @@ class GradShafranovEquilibrium(Equilibrium):
         ax.axis("equal")
 
         return ax
+
+
+class InverseGradShafranovEquilibrium(Equilibrium):
+    def __init__(
+            self,
+
+            **kwargs
+
+    ) -> None:
+        super().__init__(**kwargs)
