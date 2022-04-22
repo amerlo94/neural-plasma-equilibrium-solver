@@ -36,7 +36,7 @@ class HighBetaMLP(torch.nn.Module):
 class GradShafranovMLP(torch.nn.Module):
     def __init__(
         self,
-        width: int = 32,
+        width: int = 16,
         R0: float = 0.0,
         a: float = 1.0,
         b: float = 1.0,
@@ -132,3 +132,26 @@ class GradShafranovMLP(torch.nn.Module):
         self.requires_grad_(True)
 
         return initial_guess.detach()
+
+    def psi_axis(self, axis_guess):
+        # axis is inside boundary
+        # axis is maximum or minimum
+
+        self.requires_grad_(False)
+        axis_guess.requires_grad_(True)
+        psi_guess = self.forward(axis_guess)
+        lr = 0.3
+
+        while True:
+            prev_axis_guess = axis_guess
+            grads = grad(psi_guess, axis_guess)
+            if self.min_axis:
+                axis_guess = axis_guess - grads * lr
+            else:
+                axis_guess = axis_guess + grads * lr
+            if torch.abs(torch.sum(prev_axis_guess - axis_guess)) < 1e-12:
+                break
+            psi_guess = self.forward(axis_guess)
+
+        self.requires_grad_(True)
+        return axis_guess.detach()
