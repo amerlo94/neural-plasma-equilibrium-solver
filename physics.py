@@ -292,13 +292,14 @@ class GradShafranovEquilibrium(Equilibrium):
 
     https://github.com/PlasmaControl/DESC/tree/master/tests/inputs
 
-    TODO: update docstring with default SOLOVEV equilibrium
+    TODO: update docstring with default SOLOVEV equilibrium as in Bauer 1978
+    TODO: check fsq profile, it is the only input which might be wrong
     """
 
     def __init__(
         self,
         p: Tuple[float] = (0.125 / mu0, -0.125 / mu0),
-        f: Tuple[float] = (3.2359, -0.3409),
+        fsq: Tuple[float] = (16, -4 * 16 / 40),
         Rb: Tuple[float] = (3.99, 1.026, -0.068),
         Zb: Tuple[float] = (0, 1.58, 0.01),
         Ra: float = 3.98923536,
@@ -318,7 +319,7 @@ class GradShafranovEquilibrium(Equilibrium):
 
         #  Pressure and current profile
         self.p = torch.as_tensor(p)
-        self.f = torch.as_tensor(f)
+        self.fsq = torch.as_tensor(fsq)
 
         #  Boundary definition
         assert len(Rb) == len(Zb)
@@ -353,12 +354,12 @@ class GradShafranovEquilibrium(Equilibrium):
             p += coef * psi_**i
         return p
 
-    def f_fn(self, psi):
+    def fsq_fn(self, psi):
         psi_ = psi / self.psi_0
-        f = 0
-        for i, coef in enumerate(self.f):
-            f += coef * psi_**i
-        return f
+        fsq = 0
+        for i, coef in enumerate(self.fsq):
+            fsq += coef * psi_**i
+        return fsq
 
     def __iter__(self):
 
@@ -410,12 +411,11 @@ class GradShafranovEquilibrium(Equilibrium):
         dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
         p = self.p_fn(psi)
         dp_dpsi = grad(p, psi, create_graph=True)
-        f = self.f_fn(psi)
-        df_dpsi = grad(f, psi, create_graph=True)
+        fsq = self.fsq_fn(psi)
+        dfsq_dpsi = grad(fsq, psi, create_graph=True)
         R = x[:, 0]
-        Z = x[:, 1]
         residual = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
-        residual += mu0 * R**2 * dp_dpsi + f * df_dpsi
+        residual += mu0 * R**2 * dp_dpsi + 0.5 * dfsq_dpsi
         return (residual**2).sum()
 
     def _mae_pde_loss(self, x: Tensor, psi: Tensor) -> Tensor:
@@ -427,6 +427,21 @@ class GradShafranovEquilibrium(Equilibrium):
 
     def _axis_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         return (psi**2).sum()
+
+    def psi(self, x: Tensor) -> Tensor:
+        """
+        See Bauer1978 for the nomenclature.
+
+        TODO: only valid for the SOLOVEV case, however, the VMEC SOLOVEV is not as the analytical one
+        TODO: to be tested with his boundary
+        TODO: is mu0 needed here?
+        """
+        R = x[:, 0]
+        Z = x[:, 1]
+        l2 = self.fsq[0]
+        f0 = -self.fsq[1] / 4 / l2
+        p0 = self.p[0] * mu0
+        return f0 * l2 * Z**2 + p0 / 8 * (R**2 - l2) ** 2
 
     def grid(self, ns: int = None, normalized: bool = None) -> Tensor:
 
@@ -498,7 +513,17 @@ class GradShafranovEquilibrium(Equilibrium):
         if nplot > ns:
             nplot = ns
 
-        for i in torch.linspace(0, ns - 1, nplot, dtype=torch.int):
+        #  Plot nplot + 1 since the first one is the axis
+        ii = torch.linspace(0, ns - 1, nplot + 1, dtype=torch.int).tolist()
+        #  If psi is given, pick equally spaced flux surfaces in terms of psi
+        if psi is not None:
+            psi_i = torch.linspace(0, psi[-1], nplot + 1)
+            ii = []
+            for p in psi_i:
+                idx = torch.argmin((psi - p).abs())
+                ii.append(idx)
+
+        for i in ii:
             ax.plot(xx[i], yy[i])
             if psi is not None:
                 pi_half = int(xx.shape[1] / 4)

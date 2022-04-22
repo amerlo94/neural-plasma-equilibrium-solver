@@ -30,7 +30,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
         params = {}
         if not equi.normalized:
             params = {
-                "R0": equi.Rb[0],
+                "R0": equi.Ra,
                 "a": equi.Rb[1],
                 "b": equi.Zb[1],
                 "psi_0": equi.psi_0,
@@ -131,6 +131,8 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
         #  Plot analytical solution
         equi.fluxplot(x, psi, ax, linestyles="solid")
     elif equilibrium == "grad-shafranov":
+        # psi = equi.psi(x)
+        # equi.fluxplot(x, psi, ax, linestyles="solid")
         #  Plot VMEC flux surfaces
         #  TODO: bound VMEC solution to equilibrium, get ns from object?
         # rz, psi = get_flux_surfaces_from_wout("data/wout_DSHAPE.nc")

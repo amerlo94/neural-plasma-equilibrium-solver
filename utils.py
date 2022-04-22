@@ -66,9 +66,9 @@ def get_profile_from_wout(wout_path: str, profile: str):
     bsubv = bsubv[1:]
     chi = 0.5 * (chi[1:] + chi[:-1])
     f = (R * bsubv).mean(dim=1)
-    #  Perform fit for f, use fifth-order polynomial as in the paper
+    #  Perform fit for f squared, use fifth-order polynomial as in the paper
     f_fit = np.polynomial.Polynomial.fit(
-        chi / chi_edge, f, deg=5, domain=[0, 1], window=[0, 1]
+        chi / chi_edge, f**2, deg=5, domain=[0, 1], window=[0, 1]
     )
     return f_fit.coef.tolist()
 
