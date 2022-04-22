@@ -1,6 +1,6 @@
 """Train script."""
 
-import math
+import math, copy
 import torch
 import matplotlib.pyplot as plt
 
@@ -27,12 +27,13 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
         model = HighBetaMLP(**params)
     else:
         equi = GradShafranovEquilibrium(**params)
+        params = {}
         if not equi.normalized:
             params = {
                 "R0": equi.Rb[0],
                 "a": equi.Rb[1],
                 "b": equi.Zb[1],
-                "psi_0": equi.psi_edge,
+                "psi_0": equi.psi_0,
             }
         model = GradShafranovMLP(**params)
 
@@ -51,6 +52,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
     #  Number of optimizer steps per epoch (i.e., number of batches)
     nsteps = 1
     log_every_n_steps = 10
+    update_physics_n_epochs = 50
 
     # #######
     # rz, psi = get_flux_surfaces_from_wout("data/wout_SOLOVEV.nc")
@@ -96,6 +98,12 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
                     string += f"{k}={v.item():.2e}, "
                 print(string)
 
+        if e % update_physics_n_epochs == update_physics_n_epochs-1:
+            # equi.n_eval_update(loss)
+            axis_guess = model.get_zero_psi_input(x_axis)
+            equi.update_axis(axis_guess[0])
+
+
     #############
     # Visualize #
     #############
@@ -132,7 +140,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
     elif equilibrium == "grad-shafranov":
         #  Plot VMEC flux surfaces
         #  TODO: bound VMEC solution to equilibrium, get ns from object?
-        # rz, psi = get_flux_surfaces_from_wout("data/wout_DSHAPE.nc")
+        #rz, psi = get_flux_surfaces_from_wout("data/wout_DSHAPE.nc")
         rz, psi = get_flux_surfaces_from_wout("data/wout_SOLOVEV.nc")
         equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
 
