@@ -60,6 +60,7 @@ class Equilibrium(IterableDataset):
     ) -> Tensor:
         loss = {}
         loss["pde"] = self.pde_closure(x_domain, psi_domain)
+        #loss["pde"] = self.mae_pde_loss(x_domain, psi_domain)
         loss["boundary"] = self.boundary_closure(x_boundary, psi_boundary)
         loss["tot"] = loss["pde"] + loss["boundary"]
         if x_axis is not None:
@@ -333,21 +334,31 @@ class GradShafranovEquilibrium(Equilibrium):
         self._Za = Za
 
         #  Boundary condition on psi, the poloidal flux (chi in VMEC)
-        self.psi_edge = psi_edge
+        self.psi_0 = psi_edge
+
+        # Normalization constants
+        self.Zmax = self.Zb[1]
+        self.a = self.Rb[1]  # (rmax-rmin)/2
+
+        # pre-calculate some values
+        self.psi_edge2 = psi_edge ** 2
+        self.psi_edge3 = psi_edge ** 3
+        self.Zmax2 = self.Zmax ** 2
+        self.a2 = self.a ** 2
 
     @property
     def _mpol(self) -> int:
         return len(self.Rb)
 
     def p_fn(self, psi):
-        psi_ = psi / self.psi_edge
+        psi_ = psi / self.psi_0
         p = 0
         for i, coef in enumerate(self.p):
             p += coef * psi_**i
         return p
 
     def f_fn(self, psi):
-        psi_ = psi / self.psi_edge
+        psi_ = psi / self.psi_0
         f = 0
         for i, coef in enumerate(self.f):
             f += coef * psi_**i
@@ -395,6 +406,19 @@ class GradShafranovEquilibrium(Equilibrium):
         basis = torch.sin(torch.as_tensor([i * theta for i in range(self._mpol)]))
         return (self.Zb * basis).sum()
 
+    def minmax_Z(self):
+        theta = (2 * torch.rand(200) - 1) * math.pi
+        Zb = torch.as_tensor([self.Zb_fn(t) for t in theta])
+        Z = (Zb - self._Za) * 1 + self._Za
+        Zmin = torch.min(Z)
+        Zmax = torch.max(Z)
+        return Zmin, Zmax
+
+    # def minor_radius(self):
+    #     Rmin = (self.Rb_fn(math.pi) - self._Ra) * 1 + self._Ra
+    #     Rmax = (self.Rb_fn(0.0) - self._Ra) * 1 + self._Ra
+    #     return (Rmax - Rmin) / 2
+
     def _pde_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
         dpsi_dR = dpsi_dx[:, 0]
@@ -406,36 +430,95 @@ class GradShafranovEquilibrium(Equilibrium):
         f = self.f_fn(psi)
         df_dpsi = grad(f, psi, create_graph=True)
         R = x[:, 0]
-        Z = x[:, 1]
-        residual = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
-        residual += mu0 * R**2 * dp_dpsi + f * df_dpsi
+        # with axis singularity:
+        # residual = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
+        # residual += mu0 * R**2 * dp_dpsi + f * df_dpsi
+        # without axis singularity:
+        residual = - dpsi_dR * 1/R + dpsi2_dR2 + dpsi2_dZ2
+        residual += mu0 * R ** 2 * dp_dpsi + f * df_dpsi
         return (residual**2).sum()
 
     def _mae_pde_loss(self, x: Tensor, psi: Tensor) -> Tensor:
-        #  TODO: fix me!
-        return 0
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_dR = dpsi_dx[:, 0]
+        dpsi_dZ = dpsi_dx[:, 1]
+        dpsi2_dR2 = grad(dpsi_dR, x, create_graph=True)[:, 0]
+        dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
+        p = self.p_fn(psi)
+        dp_dpsi = grad(p, psi, create_graph=True)
+        f = self.f_fn(psi)
+        df_dpsi = grad(f, psi, create_graph=True)
+        R = x[:, 0]
+        residual = - dpsi_dR * 1/R
+        denom = dpsi2_dR2 + dpsi2_dZ2 + mu0 ** 3 * dp_dpsi + f * df_dpsi
+        return mae(residual, denom)
+
+    def a_pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_drho = dpsi_dx[:, 0]
+        dpsi_dZ = dpsi_dx[:, 1]
+        dpsi2_drho2 = grad(dpsi_drho, x, create_graph=True)[:, 0]
+        dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
+        p = self.p_fn(psi)
+        dp_dpsi = grad(p, psi, create_graph=True)
+        f = self.f_fn(psi)
+        df_dpsi = grad(f, psi, create_graph=True)
+        rho = x[:, 0]
+        residual = - self.psi_edge2 * self.Zmax2 * dpsi_drho + \
+            self.psi_edge3 * rho * (self.Zmax2 * dpsi2_drho2 +
+                                    self.a2 * dpsi2_dZ2) + \
+            self.a2 * self.Zmax2 * (mu0 * rho ** 3 * self.a2 * dp_dpsi +
+                                    f * rho * df_dpsi)
+        return (residual**2).sum()
 
     def _pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
-        #  TODO: fix me!
-        pass
-
-    def _mae_pde_loss_(self, x: Tensor, psi: Tensor) -> Tensor:
-        #  TODO: fix me!
-        return 0
-
-    def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
-        return ((psi - self.psi_edge) ** 2).sum()
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_dR = dpsi_dx[:, 0]
+        dpsi_dZ = dpsi_dx[:, 1]
+        dpsi2_dR2 = grad(dpsi_dR, x, create_graph=True)[:, 0]
+        dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
+        p = self.p_fn(psi)
+        dp_dpsi = grad(p, psi, create_graph=True)
+        f = self.f_fn(psi)
+        df_dpsi = grad(f, psi, create_graph=True)
+        R = x[:, 0]
+        Z = x[:, 1]
+        residual = -1 / R * dpsi_dR + dpsi2_dR2
+        residual += (self.Rb[1] / self.Zb[1]) ** 2 * dpsi2_dZ2
+        residual += mu0 * (self.Rb[1] ** 2 / self.psi_0) ** 2 * R ** 2 * dp_dpsi
+        residual += (self.Rb[1] / self.psi_0) ** 2 * f * df_dpsi
+        return (residual ** 2).sum()
 
     def _boundary_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
-        #  TODO: fix me!
-        pass
+        return ((psi - 1.0) ** 2).sum()
+
+    def _mae_pde_loss_(self, x: Tensor, psi: Tensor) -> Tensor:
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_drho = dpsi_dx[:, 0]
+        dpsi_dZ = dpsi_dx[:, 1]
+        dpsi2_drho2 = grad(dpsi_drho, x, create_graph=True)[:, 0]
+        dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
+        p = self.p_fn(psi)
+        dp_dpsi = grad(p, psi, create_graph=True)
+        f = self.f_fn(psi)
+        df_dpsi = grad(f, psi, create_graph=True)
+        rho = x[:, 0]
+        residual = - self.psi_edge2 * self.Zmax2 * dpsi_drho
+        denom = self.psi_edge3 * rho * (self.Zmax2 * dpsi2_drho2 +
+                                           self.a2 * dpsi2_dZ2) + \
+                   self.a2 * self.Zmax2 * (mu0 * rho ** 3 * self.a2 * dp_dpsi +
+                                           f * rho * df_dpsi)
+        return mae(residual, denom)
+
+    def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
+        return ((psi - self.psi_0) ** 2).sum()
 
     def _axis_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         return (psi**2).sum()
 
     def _axis_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
-        #  TODO: fix me!
-        pass
+        # normalized or not, psi=0 on axis
+        return (psi**2).sum()
 
     def grid(self, ns: int = None, normalized: bool = None) -> Tensor:
 
@@ -515,3 +598,13 @@ class GradShafranovEquilibrium(Equilibrium):
         ax.axis("equal")
 
         return ax
+
+
+class InverseGradShafranovEquilibrium(Equilibrium):
+    def __init__(
+            self,
+
+            **kwargs
+
+    ) -> None:
+        super().__init__(**kwargs)
