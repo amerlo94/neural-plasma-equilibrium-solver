@@ -1,5 +1,7 @@
 """Models."""
 
+from typing import Union
+
 import torch
 from torch import Tensor
 
@@ -66,3 +68,67 @@ class GradShafranovMLP(torch.nn.Module):
         psi_hat = self.fc1(torch.stack([R, Z], dim=-1))
         psi_hat = self.tanh(psi_hat / 2)
         return self.psi_0 * self.fc2(psi_hat).view(-1)
+
+    def find_x_of_psi(
+        self,
+        psi: Union[float, str],
+        initial_guess: Tensor,
+        tolerance: float = 1e-5,
+        tolerance_change: float = 1e-8,
+    ):
+        """
+        Find domain value x_0 such that psi = self(x_0).
+
+        If psi is "min" or "max", find domain value where minimize or maximize self.
+        """
+
+        assert initial_guess.shape == (1, 2)
+
+        if isinstance(psi, str):
+            assert psi in ("min", "max")
+        else:
+            psi = torch.as_tensor(psi)
+
+        #  Copy tensor to avoid changes to the original one
+        initial_guess = torch.Tensor(initial_guess)
+        initial_guess.requires_grad_(True)
+
+        #  Disable model graph
+        self.requires_grad_(False)
+
+        #  Create optimization loop to finx x
+        optim = torch.optim.LBFGS([initial_guess], lr=1e-2)
+
+        def closure():
+            optim.zero_grad()
+            psi_hat = self.forward(initial_guess)
+            if psi == "min":
+                loss = psi_hat
+            elif psi == "max":
+                loss = -psi_hat
+            else:
+                loss = torch.abs(psi_hat - psi)
+            loss.backward()
+            return loss
+
+        #  Compute first iteration
+        psi_hat = self.forward(initial_guess)
+
+        while True:
+
+            #  Update initial guess
+            psi_hat_old = psi_hat
+            optim.step(closure)
+
+            #  Check for convergence
+            psi_hat = self.forward(initial_guess)
+            if not isinstance(psi, str):
+                if torch.abs(psi_hat - psi) <= tolerance:
+                    break
+            if torch.abs(psi_hat - psi_hat_old) <= tolerance_change:
+                break
+
+        #  Enable back model graph
+        self.requires_grad_(True)
+
+        return initial_guess.detach()

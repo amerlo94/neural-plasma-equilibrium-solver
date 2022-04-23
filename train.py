@@ -53,6 +53,9 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
     nsteps = 1
     log_every_n_steps = 10
 
+    #  Frequency for axis guess update
+    update_axis_every_n_epochs = 20
+
     # #######
     # rz, psi = get_flux_surfaces_from_wout("data/wout_SOLOVEV.nc")
     # psi = torch.repeat_interleave(psi, int(len(rz) / len(psi)))
@@ -92,10 +95,23 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
                     model(x_axis),
                     return_dict=True,
                 )
-                string = f"[{e:5d}/{nepochs:5d}][{s:3d}/{nsteps:3d}], "
+                string = f"[{e:5d}/{nepochs:5d}][{s:3d}/{nsteps:3d}]"
                 for k, v in loss.items():
-                    string += f"{k}={v.item():.2e}, "
+                    string += f", {k}={v.item():.2e}"
                 print(string)
+
+            #  Update running axis guess
+            if equilibrium == "grad-shafranov":
+                if e % update_axis_every_n_epochs == update_axis_every_n_epochs - 1:
+                    if equi.psi_0 > 0:
+                        psi = "min"
+                    else:
+                        psi = "max"
+                    axis_guess = model.find_x_of_psi(psi, x_axis)
+                    equi.update_axis(axis_guess[0])
+                    string = f"[{e:5d}/{nepochs:5d}][{s:3d}/{nsteps:3d}]"
+                    string += f", update axis guess to [{axis_guess[0][0]:.2f}, {axis_guess[0][1]:.2f}]"
+                    print(string)
 
     #############
     # Visualize #
@@ -131,6 +147,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
         #  Plot analytical solution
         equi.fluxplot(x, psi, ax, linestyles="solid")
     elif equilibrium == "grad-shafranov":
+        #  TODO: fix analytical solution for the solovev case
         # psi = equi.psi(x)
         # equi.fluxplot(x, psi, ax, linestyles="solid")
         #  Plot VMEC flux surfaces
@@ -138,6 +155,8 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
         # rz, psi = get_flux_surfaces_from_wout("data/wout_DSHAPE.nc")
         rz, psi = get_flux_surfaces_from_wout("data/wout_SOLOVEV.nc")
         equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
+        #  TODO: remove me, this is just for debugging!
+        # equi.fluxsurfacesplot(x, ax)
 
     #  Plot scatter plot
     if equilibrium == "high-beta":

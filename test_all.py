@@ -3,6 +3,7 @@
 import pytest
 import torch
 
+from models import GradShafranovMLP
 from physics import HighBetaEquilibrium
 from utils import grad, get_profile_from_wout, ift
 
@@ -151,3 +152,13 @@ def test_len_vmec_profile_coefs(wout_path, profile):
     """The fit should return a fifth-order polynomail."""
     coef = get_profile_from_wout(wout_path, profile)
     assert len(coef) == 6
+
+
+@pytest.mark.parametrize("psi", (0,))
+@pytest.mark.parametrize("tolerance", (1e-3, 1e-5))
+def test_model_find_x_of_psi(psi, tolerance):
+    initial_guess = torch.rand((1, 2)) * 1e-3
+    model = GradShafranovMLP()
+    x = model.find_x_of_psi(psi=psi, initial_guess=initial_guess, tolerance=tolerance)
+    psi_hat = model.forward(x)
+    assert abs(psi - psi_hat) < tolerance

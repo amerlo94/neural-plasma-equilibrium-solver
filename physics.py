@@ -302,7 +302,7 @@ class GradShafranovEquilibrium(Equilibrium):
         fsq: Tuple[float] = (16, -4 * 16 / 40),
         Rb: Tuple[float] = (3.99, 1.026, -0.068),
         Zb: Tuple[float] = (0, 1.58, 0.01),
-        Ra: float = 3.98923536,
+        Ra: float = 3.99,
         Za: float = 0.0,
         psi_0: float = -1,
         #  TODO: DSHAPE input, put me into a dshape.yaml file
@@ -373,7 +373,7 @@ class GradShafranovEquilibrium(Equilibrium):
             domain = []
             ns = int(math.sqrt(self.ndomain))
             #  TODO: use random point and speed up theta grid computation with ift
-            # hs = torch.rand(ns, generator=generator)**2
+            # hs = torch.rand(ns, generator=generator) ** 2
             hs = torch.linspace(0, 1, ns + 2)[1:-1] ** 2
             for s in hs:
                 theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
@@ -402,6 +402,10 @@ class GradShafranovEquilibrium(Equilibrium):
     def Zb_fn(self, theta):
         basis = torch.sin(torch.as_tensor([i * theta for i in range(self._mpol)]))
         return (self.Zb * basis).sum()
+
+    def update_axis(self, axis_guess):
+        #  Axis should have Za=0 by symmetry
+        self._Ra = axis_guess[0]
 
     def _pde_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
