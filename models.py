@@ -4,6 +4,7 @@ from typing import Union
 
 import torch
 from torch import Tensor
+from utils import grad
 
 
 class HighBetaMLP(torch.nn.Module):
@@ -41,18 +42,24 @@ class GradShafranovMLP(torch.nn.Module):
         a: float = 1.0,
         b: float = 1.0,
         psi_0: float = 1.0,
+        min_axis: bool = False,
     ) -> None:
         super().__init__()
 
         self.fc1 = torch.nn.Linear(2, width)
+        # self.fc3 = torch.nn.Linear(width, width)
         self.tanh = torch.nn.Tanh()
+        # self.tanh1 = torch.nn.Tanh()
         self.fc2 = torch.nn.Linear(width, 1)
 
         #  Scaling parameters
-        self.R0 = R0
-        self.a = a
-        self.b = b
-        self.psi_0 = psi_0
+        self.R0 = R0  # R at axis
+        self.a = a  # minor radius for R normalisation
+        self.b = b  # Z normalisation
+        self.psi_0 = psi_0  # psi at boundary for scaling
+        # used to find axis coordinates,
+        # True - minimum is at axis, False - maximum is at axis (e.g. Solov'ev)
+        self.min_axis = min_axis
 
         #  Initialize last bias to zero, since psi(Ra, Za)=0
         torch.nn.init.zeros_(self.fc2.bias)
@@ -66,6 +73,7 @@ class GradShafranovMLP(torch.nn.Module):
         Z = Z / self.b
         #  Compute psi
         psi_hat = self.fc1(torch.stack([R, Z], dim=-1))
+        # psi_hat = self.fc3(self.tanh1(psi_hat))
         psi_hat = self.tanh(psi_hat / 2)
         return self.psi_0 * self.fc2(psi_hat).view(-1)
 

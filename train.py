@@ -34,6 +34,10 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
                 "b": equi.Zb[1],
                 "psi_0": equi.psi_0,
             }
+        else:
+            params = {
+                "min_axis": True
+            }
         model = GradShafranovMLP(**params)
 
     model.train()
@@ -94,9 +98,9 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
                     model(x_axis),
                     return_dict=True,
                 )
-                string = f"[{e:5d}/{nepochs:5d}][{s:3d}/{nsteps:3d}]"
+                string = f"[{e:5d}/{nepochs:5d}][{s:3d}/{nsteps:3d}], "
                 for k, v in loss.items():
-                    string += f", {k}={v.item():.2e}"
+                    string += f"{k}={v.item():.2e}, "
                 print(string)
 
             #  Update running axis guess
