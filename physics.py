@@ -443,11 +443,11 @@ class GradShafranovEquilibrium(Equilibrium):
         dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
         p = self.p_fn(psi)
         dp_dpsi = grad(p, psi, create_graph=True)
-        f = self.f_fn(psi)
-        df_dpsi = grad(f, psi, create_graph=True)
+        f = self.fsq_fn(psi)
+        dfsq_dpsi = grad(f, psi, create_graph=True)
         R = x[:, 0]
         residual = - dpsi_dR * 1/R
-        denom = dpsi2_dR2 + dpsi2_dZ2 + mu0 ** 3 * dp_dpsi + f * df_dpsi
+        denom = dpsi2_dR2 + dpsi2_dZ2 + mu0 * R**2 * dp_dpsi + 0.5 * dfsq_dpsi
         return mae(residual, denom)
 
     def _pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
@@ -467,23 +467,6 @@ class GradShafranovEquilibrium(Equilibrium):
             self.a2 * self.Zmax2 * (mu0 * rho ** 3 * self.a2 * dp_dpsi +
                                     f * rho * df_dpsi)
         return (residual**2).sum()
-
-    def a_pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
-        dpsi_dx = grad(psi, x, create_graph=True)
-        dpsi_dR = dpsi_dx[:, 0]
-        dpsi_dZ = dpsi_dx[:, 1]
-        dpsi2_dR2 = grad(dpsi_dR, x, create_graph=True)[:, 0]
-        dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
-        p = self.p_fn(psi)
-        dp_dpsi = grad(p, psi, create_graph=True)
-        f = self.f_fn(psi)
-        df_dpsi = grad(f, psi, create_graph=True)
-        R = x[:, 0]
-        residual = -1 / R * dpsi_dR + dpsi2_dR2
-        residual += (self.Rb[1] / self.Zb[1]) ** 2 * dpsi2_dZ2
-        residual += mu0 * (self.Rb[1] ** 2 / self.psi_0) ** 2 * R ** 2 * dp_dpsi
-        residual += (self.Rb[1] / self.psi_0) ** 2 * f * df_dpsi
-        return (residual ** 2).sum()
 
     def _boundary_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
         return ((psi - 1.0) ** 2).sum()
@@ -551,7 +534,7 @@ class GradShafranovEquilibrium(Equilibrium):
 
         return torch.cat(grid)
 
-    def fluxplot(self, x, psi, ax, *args, **kwargs):
+    def fluxplot(self, x, psi, ax, levels=10, *args, **kwargs):
 
         R = x[:, 0]
         Z = x[:, 1]
@@ -565,7 +548,7 @@ class GradShafranovEquilibrium(Equilibrium):
         #  Detach and reshape tensors
         psi = psi.view(xx.shape)
 
-        cs = ax.contour(xx, yy, psi, levels=10, **kwargs)
+        cs = ax.contour(xx, yy, psi, levels=levels, **kwargs)
         ax.clabel(cs, inline=True, fontsize=10, fmt="%1.3f")
         ax.axis("equal")
 

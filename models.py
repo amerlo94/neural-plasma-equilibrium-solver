@@ -42,7 +42,7 @@ class GradShafranovMLP(torch.nn.Module):
         a: float = 1.0,
         b: float = 1.0,
         psi_0: float = 1.0,
-        min_axis: bool = False,
+        min_axis: bool = True,
     ) -> None:
         super().__init__()
 
@@ -163,3 +163,6 @@ class GradShafranovMLP(torch.nn.Module):
 
         self.requires_grad_(True)
         return axis_guess.detach()
+
+    def coordinates_for_psi(self, psi, guess=None):
+        raise NotImplementedError
