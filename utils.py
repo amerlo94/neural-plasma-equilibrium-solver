@@ -36,9 +36,11 @@ def get_wout(wout_path: str):
 
 def get_profile_from_wout(wout_path: str, profile: str):
     """
-    Get f(psi) = R * Bv or p(psi) from a vmec equilibrium.
+    Get f(psi) = R**2 * Bsupv or p(psi) from a vmec equilibrium.
 
     Psi is the poloidal flux, which is called chi in VMEC.
+
+    TODO: check if f fitting is correct!
     """
     assert profile in ("p", "f")
     wout = get_wout(wout_path)
@@ -56,19 +58,21 @@ def get_profile_from_wout(wout_path: str, profile: str):
         return p_fit.coef.tolist()
     #  Get Fourier coefficients for f
     rmnc = torch.as_tensor(wout["rmnc"][:]).clone()
-    bsubvmnc = torch.as_tensor(wout["bsubvmnc"][:]).clone()
-    assert rmnc.shape[0] == bsubvmnc.shape[0]
+    bsupvmnc = torch.as_tensor(wout["bsupvmnc"][:]).clone()
+    assert rmnc.shape[0] == bsupvmnc.shape[0]
     #  Compute quantities
     R = ift(rmnc, basis="cos", endpoint=False)
-    bsubv = ift(bsubvmnc, basis="cos", endpoint=False)
+    bsupv = ift(bsupvmnc, basis="cos", endpoint=False)
     #  Move quantities to half-mesh
     R = 0.5 * (R[1:] + R[:-1])
-    bsubv = bsubv[1:]
+    bsupv = bsupv[1:]
     chi = 0.5 * (chi[1:] + chi[:-1])
-    f = (R * bsubv).mean(dim=1)
+    #  Compute f**2
+    fsq = (R**2 * bsupv) ** 2
+    fsq = fsq.mean(dim=1)
     #  Perform fit for f squared, use fifth-order polynomial as in the paper
     f_fit = np.polynomial.Polynomial.fit(
-        chi / chi_edge, f**2, deg=5, domain=[0, 1], window=[0, 1]
+        chi / chi_edge, fsq, deg=5, domain=[0, 1], window=[0, 1]
     )
     return f_fit.coef.tolist()
 
@@ -113,3 +117,62 @@ def ift(
     #  Multiple flux surfaces
     tm = tm[None, ...]
     return torch.einsum("stm,sm->st", tm, xm).contiguous()
+
+
+def get_solovev_boundary(
+    Ra: float = 4.0,
+    p0: float = 0.125,
+    psi_0: float = 1.0,
+    mpol: int = 5,
+    tolerance: float = 1e-4,
+    tolerance_change: float = 1e-9,
+):
+    """
+    Get Fourier coefficients which describe a given Solov'ev boundary.
+
+    Example:
+
+    >>> from utils import get_solovev_boundary
+    >>> Rb = get_solovev_boundary(mpol=5)
+    >>> len(Rb)
+    5
+    """
+
+    #  Build theta grid
+    ntheta = 40
+    theta = torch.linspace(0, 2 * math.pi, ntheta, dtype=torch.float64)
+
+    #  Build boundary from analytical Solov'ev solution
+    #  R**2 = Ra**2 - psi_0 sqrt(8 / p0) rho cos(theta)
+    Rsq = Ra**2 - psi_0 * math.sqrt(8 / p0) * torch.cos(theta)
+
+    #  Build boundary and set initial guess
+    Rb = torch.zeros(mpol, dtype=torch.float64)
+    Rb[0] = Ra
+    Rb.requires_grad_(True)
+
+    optim = torch.optim.LBFGS([Rb], lr=1e-2)
+
+    def loss_fn():
+        R = ift(Rb, basis="cos", ntheta=ntheta)
+        return ((R**2 - Rsq) ** 2).sum()
+
+    def closure():
+        optim.zero_grad()
+        loss = loss_fn()
+        loss.backward()
+        return loss
+
+    #  Get initial loss
+    loss = loss_fn()
+
+    while True:
+        loss_old = loss
+        optim.step(closure)
+        loss = loss_fn()
+        if loss < tolerance:
+            break
+        if abs(loss_old.item() - loss.item()) < tolerance_change:
+            break
+
+    return Rb.detach()

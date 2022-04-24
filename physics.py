@@ -286,26 +286,39 @@ class HighBetaEquilibrium(Equilibrium):
 
 class GradShafranovEquilibrium(Equilibrium):
     """
-    The default case is the D-shape plasma of the original VMEC paper.
+    The default case is a Solov'ev equilibrium as in the original VMEC paper.
 
-    The VMEC input and output file are taken from the DESC repository:
+    This repository keeps VMEC 2D equilibria under the `data` folder,
+    they are taken from the DESC repository:
 
     https://github.com/PlasmaControl/DESC/tree/master/tests/inputs
-
-    TODO: update docstring with default SOLOVEV equilibrium as in Bauer 1978
-    TODO: check fsq profile, it is the only input which might be wrong
     """
 
     def __init__(
         self,
         p: Tuple[float] = (0.125 / mu0, -0.125 / mu0),
-        fsq: Tuple[float] = (16, -4 * 16 / 40),
-        Rb: Tuple[float] = (3.99, 1.026, -0.068),
-        Zb: Tuple[float] = (0, 1.58, 0.01),
-        Ra: float = 3.99,
+        fsq: Tuple[float] = (4, -4 * 4 / 10),
+        Rb: Tuple[float] = (
+            3.9334e00,
+            -1.0258e00,
+            -6.8083e-02,
+            -9.0720e-03,
+            -1.4531e-03,
+        ),
+        Zb: Tuple[float] = (0, math.sqrt(10) / 2, 0, 0, 0),
+        Ra: float = 3.9332,
         Za: float = 0.0,
-        psi_0: float = -1,
-        #  TODO: DSHAPE input, put me into a dshape.yaml file
+        psi_0: float = 1,
+        #  TODO: put these definitions in *.yaml files
+        #  TODO: Solov'ev as from VMEC wout file, to be fixed!
+        # p: Tuple[float] = (0.125 / mu0, -0.125 / mu0),
+        # fsq: Tuple[float] = (0.65690779, -0.1352057),
+        # Rb: Tuple[float] = (3.99, 1.026, -0.068),
+        # Zb: Tuple[float] = (0, 1.58, 0.01),
+        # Ra: float = 3.99,
+        # Za: float = 0.0,
+        # psi_0: float = -1,
+        #  TODO: DSHAPE equilibrium, to be fixed!
         # p: Tuple[float] = (613.26, -881.85, 131.21, 40.69, 53.39, 40.68),
         # f: Tuple[float] = (2.7734, -0.0659, -0.0037, -0.0028, -0.0123, -0.0110),
         # Rb: Tuple[float] = (3.51, 1.0, 0.106),
@@ -436,16 +449,16 @@ class GradShafranovEquilibrium(Equilibrium):
         """
         See Bauer1978 for the nomenclature.
 
-        TODO: only valid for the SOLOVEV case, however, the VMEC SOLOVEV is not as the analytical one
-        TODO: to be tested with his boundary
-        TODO: is mu0 needed here?
+        Achtung: this is the analytical solution only in case of a Solov'ev equilibrium.
         """
         R = x[:, 0]
         Z = x[:, 1]
-        l2 = self.fsq[0]
-        f0 = -self.fsq[1] / 4 / l2
-        p0 = self.p[0] * mu0
-        return f0 * l2 * Z**2 + p0 / 8 * (R**2 - l2) ** 2
+        l2 = self.fsq[0]  # R0**2 in VMEC
+        f0 = -self.fsq[1] / 4 / l2  # beta1 in VMEC
+        p0 = self.p[0] * mu0  # beta0 in VMEC
+        #  Get axis from R at boundary
+        Ra = math.sqrt(self.Rb.sum().item() ** 2 + math.sqrt(8 / p0))
+        return f0 * l2 * Z**2 + p0 / 8 * (R**2 - Ra**2) ** 2
 
     def grid(self, ns: int = None, normalized: bool = None) -> Tensor:
 

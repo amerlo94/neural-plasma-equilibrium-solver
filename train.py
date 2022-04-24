@@ -148,13 +148,13 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
         equi.fluxplot(x, psi, ax, linestyles="solid")
     elif equilibrium == "grad-shafranov":
         #  TODO: fix analytical solution for the solovev case
-        # psi = equi.psi(x)
-        # equi.fluxplot(x, psi, ax, linestyles="solid")
+        psi = equi.psi(x)
+        equi.fluxplot(x, psi, ax, linestyles="solid")
         #  Plot VMEC flux surfaces
         #  TODO: bound VMEC solution to equilibrium, get ns from object?
         # rz, psi = get_flux_surfaces_from_wout("data/wout_DSHAPE.nc")
-        rz, psi = get_flux_surfaces_from_wout("data/wout_SOLOVEV.nc")
-        equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
+        # rz, psi = get_flux_surfaces_from_wout("data/wout_SOLOVEV.nc")
+        # equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
         #  TODO: remove me, this is just for debugging!
         # equi.fluxsurfacesplot(x, ax)
 
