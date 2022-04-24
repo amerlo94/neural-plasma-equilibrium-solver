@@ -2,6 +2,7 @@
 
 import torch
 from torch import Tensor
+from utils import grad
 
 
 class HighBetaMLP(torch.nn.Module):
@@ -39,20 +40,24 @@ class GradShafranovMLP(torch.nn.Module):
         a: float = 1.0,
         b: float = 1.0,
         psi_0: float = 1.0,
+        min_axis: bool = False,
     ) -> None:
         super().__init__()
 
         self.fc1 = torch.nn.Linear(2, width)
         # self.fc3 = torch.nn.Linear(width, width)
         self.tanh = torch.nn.Tanh()
-        # self.tanh1 = torch.nn.Tanh()
+        self.relu = torch.nn.ReLU()
         self.fc2 = torch.nn.Linear(width, 1)
 
         #  Scaling parameters
-        self.R0 = R0
-        self.a = a
-        self.b = b
-        self.psi_0 = psi_0
+        self.R0 = R0  # R at axis
+        self.a = a  # minor radius for R normalisation
+        self.b = b  # Z normalisation
+        self.psi_0 = psi_0  # psi at boundary for scaling
+        # used to find axis coordinates,
+        # True - minimum is at axis, False - maximum is at axis (e.g. Solov'ev)
+        self.min_axis = min_axis
 
         #  Initialize last bias to zero, since psi(Ra, Za)=0
         torch.nn.init.zeros_(self.fc2.bias)
@@ -68,31 +73,32 @@ class GradShafranovMLP(torch.nn.Module):
         psi_hat = self.fc1(torch.stack([R, Z], dim=-1))
         # psi_hat = self.fc3(self.tanh1(psi_hat))
         psi_hat = self.tanh(psi_hat / 2)
-        return self.psi_0 * self.fc2(psi_hat).view(-1)
+        psi_hat = self.fc2(psi_hat).view(-1)
+        # psi_hat = torch.relu(psi_hat)
+        return self.psi_0 * psi_hat
 
-    def get_zero_psi_input(self, axis_guess):
-        axis_guess.requires_grad_(True)
+    def psi_axis(self, axis_guess):
+        # axis is inside boundary
+        # axis is maximum or minimum
+
         self.requires_grad_(False)
-        optim = torch.optim.LBFGS([axis_guess], lr=0.1)
-        criterion = torch.nn.L1Loss()
-        psi = self.forward(axis_guess)
-        goal = torch.zeros_like(psi)
-
-        def closure():
-            optim.zero_grad()
-            x = self.forward(axis_guess)
-            loss = criterion(x, goal)
-            loss.backward()
-            return loss
+        axis_guess.requires_grad_(True)
+        psi_guess = self.forward(axis_guess)
+        lr = 0.3
 
         while True:
-            psi_old = psi
-            optim.step(closure)
-            psi = self.forward(axis_guess)
-            if torch.abs(psi) >= 1e-8:
+            prev_axis_guess = axis_guess
+            grads = grad(psi_guess, axis_guess)
+            if self.min_axis:
+                axis_guess = axis_guess - grads * lr
+            else:
+                axis_guess = axis_guess + grads * lr
+            if torch.abs(torch.sum(prev_axis_guess - axis_guess)) < 1e-12:
                 break
-            if (psi - psi_old) <= 1e-8:
-                break
+            psi_guess = self.forward(axis_guess)
 
         self.requires_grad_(True)
         return axis_guess.detach()
+
+    def coordinates_for_psi(self, psi, guess=None):
+        raise NotImplementedError

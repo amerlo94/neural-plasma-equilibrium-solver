@@ -12,6 +12,61 @@ torch.set_default_tensor_type(torch.DoubleTensor)
 
 
 def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
+    def visualize(levels=10):
+        #############
+        # Visualize #
+        #############
+
+        #  Get solution on test collocation points on a regular grid
+        x = equi.grid()
+        x.requires_grad_()
+        psi_hat = model(x)
+
+        #  Compute normalized residual error
+        pde_mae = equi.mae_pde_loss(x, psi_hat)
+        print(f"pde mae={pde_mae:.2e}")
+
+        #  Scale model solution
+        psi_hat = psi_hat.detach()
+        if equi.normalized:
+            psi_hat *= equi.psi_0
+
+        #  Get grid points
+        x = equi.grid(normalized=False)
+
+        #  Compute mae between model solution and analytical solution
+        if equilibrium == "high-beta":
+            psi = equi.psi(x)
+            psi_mae = mae(psi_hat, psi)
+            print(f"psi mae={psi_mae:.2e}")
+
+        #  Plot magnetic flux
+        fig, ax = plt.subplots(1, 1, tight_layout=True)
+        equi.fluxplot(x, psi_hat, ax, levels=levels, linestyles="dashed")
+        if equilibrium == "high-beta":
+            #  Plot analytical solution
+            equi.fluxplot(x, psi, ax, linestyles="solid")
+        elif equilibrium == "grad-shafranov":
+            #  Plot VMEC flux surfaces
+            #  TODO: bound VMEC solution to equilibrium, get ns from object?
+            # rz, psi = get_flux_surfaces_from_wout("data/wout_DSHAPE.nc")
+            rz, psi = get_flux_surfaces_from_wout("data/wout_SOLOVEV.nc")
+            equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
+            axis_guess = model.psi_axis(x_axis)
+            axis_guess = axis_guess.numpy()[0]
+            ax.scatter(axis_guess[0], axis_guess[1], marker="x")
+
+        #  Plot scatter plot
+        if equilibrium == "high-beta":
+            fig, ax = plt.subplots(1, 1, tight_layout=True)
+            _, _, _, im = ax.hist2d(psi_hat.tolist(), psi.tolist(), bins=50, cmin=1)
+            ax.plot([psi.min(), psi.max()], [psi.min(), psi.max()], "r--", linewidth=2)
+            fig.colorbar(im, ax=ax)
+            ax.set_xlabel(r"$\hat{\Psi}$")
+            ax.set_ylabel(r"$\Psi$")
+
+        #  Show figures
+        plt.show()
 
     assert equilibrium in ("high-beta", "grad-shafranov")
 
@@ -35,6 +90,10 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
                 "b": equi.Zb[1],
                 "psi_0": equi.psi_0,
             }
+        else:
+            params = {
+                "min_axis": True
+            }
         model = GradShafranovMLP(**params)
 
     model.train()
@@ -52,7 +111,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
     #  Number of optimizer steps per epoch (i.e., number of batches)
     nsteps = 1
     log_every_n_steps = 10
-    update_physics_n_epochs = 50
+    update_physics_n_epochs = 60
 
     # #######
     # rz, psi = get_flux_surfaces_from_wout("data/wout_SOLOVEV.nc")
@@ -98,64 +157,16 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
                     string += f"{k}={v.item():.2e}, "
                 print(string)
 
-        if e % update_physics_n_epochs == update_physics_n_epochs-1:
-            # equi.n_eval_update(loss)
-            axis_guess = model.get_zero_psi_input(x_axis)
+        #equi.soft_adapt_lweights()
+        if global_step % update_physics_n_epochs == update_physics_n_epochs-1:
+            # equi.vanMilligen_adapt_lweigths(loss)
+            axis_guess = model.psi_axis(axis_guess=x_axis)
             equi.update_axis(axis_guess[0])
+            print(axis_guess)
 
 
-    #############
-    # Visualize #
-    #############
 
-    #  Get solution on test collocation points on a regular grid
-    x = equi.grid()
-    x.requires_grad_()
-    psi_hat = model(x)
-
-    #  Compute normalized residual error
-    pde_mae = equi.mae_pde_loss(x, psi_hat)
-    print(f"pde mae={pde_mae:.2e}")
-
-    #  Scale model solution
-    psi_hat = psi_hat.detach()
-    if equi.normalized:
-        psi_hat *= equi.psi_0
-
-    #  Get grid points
-    x = equi.grid(normalized=False)
-
-    #  Compute mae between model solution and analytical solution
-    if equilibrium == "high-beta":
-        psi = equi.psi(x)
-        psi_mae = mae(psi_hat, psi)
-        print(f"psi mae={psi_mae:.2e}")
-
-    #  Plot magnetic flux
-    fig, ax = plt.subplots(1, 1, tight_layout=True)
-    equi.fluxplot(x, psi_hat, ax, linestyles="dashed")
-    if equilibrium == "high-beta":
-        #  Plot analytical solution
-        equi.fluxplot(x, psi, ax, linestyles="solid")
-    elif equilibrium == "grad-shafranov":
-        #  Plot VMEC flux surfaces
-        #  TODO: bound VMEC solution to equilibrium, get ns from object?
-        #rz, psi = get_flux_surfaces_from_wout("data/wout_DSHAPE.nc")
-        rz, psi = get_flux_surfaces_from_wout("data/wout_SOLOVEV.nc")
-        equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
-
-    #  Plot scatter plot
-    if equilibrium == "high-beta":
-        fig, ax = plt.subplots(1, 1, tight_layout=True)
-        _, _, _, im = ax.hist2d(psi_hat.tolist(), psi.tolist(), bins=50, cmin=1)
-        ax.plot([psi.min(), psi.max()], [psi.min(), psi.max()], "r--", linewidth=2)
-        fig.colorbar(im, ax=ax)
-        ax.set_xlabel(r"$\hat{\Psi}$")
-        ax.set_ylabel(r"$\Psi$")
-
-    #  Show figures
-    plt.show()
-
+    visualize()
 
 if __name__ == "__main__":
     #  TODO: add argparse with default configuration

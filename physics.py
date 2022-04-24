@@ -48,8 +48,13 @@ class Equilibrium(IterableDataset):
             self.data_closure = self._data_closure
             self.mae_pde_loss = self._mae_pde_loss
 
-        self._l_gamma = [1] * 3  # boundary, pde, axis
-        self._l_alpha = [1] * 3
+        self.l_gamma = [1] * 3  # boundary, pde, axis
+        self.l_alpha = [1] * 3
+
+        # soft adapt
+        self.soft_adapt = {"boundary": torch.empty(2, requires_grad=False),
+                           "axis": torch.empty(2, requires_grad=False),
+                           "pde": torch.empty(2, requires_grad=False)}
 
     def closure(
         self,
@@ -65,11 +70,11 @@ class Equilibrium(IterableDataset):
         loss["pde"] = self.pde_closure(x_domain, psi_domain)
         #loss["pde"] = self.mae_pde_loss(x_domain, psi_domain)
         loss["boundary"] = self.boundary_closure(x_boundary, psi_boundary)
-        loss["tot"] = self._l_alpha[0] * self._l_gamma[0] * loss["pde"]
-        loss["tot"] += self._l_alpha[1] * self._l_gamma[1] * loss["boundary"]
+        loss["tot"] = self.l_alpha[0] * self.l_gamma[0] * loss["pde"]
+        loss["tot"] += self.l_alpha[1] * self.l_gamma[1] * loss["boundary"]
         if x_axis is not None:
             loss["axis"] = self.axis_closure(x_axis, psi_axis)
-            loss["tot"] += self._l_alpha[2] * self._l_gamma[2] * loss["axis"]
+            loss["tot"] += self.l_alpha[2] * self.l_gamma[2] * loss["axis"]
         if return_dict:
             return loss
         return loss["tot"]
@@ -305,7 +310,7 @@ class GradShafranovEquilibrium(Equilibrium):
 
     def __init__(
         self,
-        p: Tuple[float] = (0.125 / mu0, -0.125 / mu0),
+        p: Tuple[float] = (0.125 / (1*mu0), -0.125 / (1*mu0)),
         f: Tuple[float] = (3.2359, -0.3409),
         Rb: Tuple[float] = (3.99, 1.026, -0.068),
         Zb: Tuple[float] = (0, 1.58, 0.01),
@@ -413,36 +418,36 @@ class GradShafranovEquilibrium(Equilibrium):
         basis = torch.sin(torch.as_tensor([i * theta for i in range(self._mpol)]))
         return (self.Zb * basis).sum()
 
-    def minmax_Z(self):
-        theta = (2 * torch.rand(200) - 1) * math.pi
-        Zb = torch.as_tensor([self.Zb_fn(t) for t in theta])
-        Z = (Zb - self._Za) * 1 + self._Za
-        Zmin = torch.min(Z)
-        Zmax = torch.max(Z)
-        return Zmin, Zmax
-
-    # def minor_radius(self):
-    #     Rmin = (self.Rb_fn(math.pi) - self._Ra) * 1 + self._Ra
-    #     Rmax = (self.Rb_fn(0.0) - self._Ra) * 1 + self._Ra
-    #     return (Rmax - Rmin) / 2
-
-    def n_eval_update(self, loss):
+    def soft_adapt_lweights(self):
+        # https://arxiv.org/pdf/1912.12355.pdf
+        pde = torch.exp(self.soft_adapt["pde"][1] / self.soft_adapt["pde"][0])
+        bndry = torch.exp(self.soft_adapt["boundary"][1] / self.soft_adapt["boundary"][0])
+        axis = torch.exp(self.soft_adapt["axis"][1] / self.soft_adapt["axis"][0])
+        tot = pde + bndry + axis
+        self.l_gamma[0] = pde / tot
+        self.l_gamma[1] = bndry / tot
+        self.l_gamma[2] = axis / tot
+    
+    def vanMilligen_adapt_lweigths(self, loss):
         for k, v in loss.items():
             loss[k] = v.detach()
-        self._l_gamma[0] = loss['pde'] ** -1
-        self._l_gamma[1] = loss['boundary'] ** -1
-        self._l_gamma[2] = loss['axis'] ** -1
+        self.l_gamma[0] = loss["pde"] ** -1 # (-1/2)
+        self.l_gamma[1] = loss["boundary"] ** -1 # (-1/2)
+        self.l_gamma[2] = loss["axis"] ** -1 # (-1/2)
 
-        Ei_gammai = self._l_gamma[0] * loss['pde'] + \
-                    self._l_gamma[1] * loss['boundary'] + \
-                    self._l_gamma[2] * loss['axis']
+        E_tot = self.l_gamma[0] * loss["pde"] + self.l_gamma[1] * loss["boundary"] + self.l_gamma[2] * loss["axis"]
 
-        self._l_alpha[0] = max(1/4, self._l_gamma[0],
-                               loss['pde'] / (1/3 * Ei_gammai))
-        self._l_alpha[1] = max(1/4, self._l_gamma[1],
-                               loss['boundary'] / (1/3 * Ei_gammai))
-        self._l_alpha[2] = max(1/4, self._l_gamma[2],
-                               loss['axis'] / (1/3 * Ei_gammai))
+        self.l_alpha[0] = max(self.l_gamma[0], 0.25, 3 * loss["pde"] / E_tot)
+        self.l_alpha[1] = max(self.l_gamma[1], 0.25, 3 * loss["boundary"] / E_tot)
+        self.l_alpha[2] = max(self.l_gamma[2], 0.25, 3 * loss["axis"] / E_tot)
+
+        print(self.l_gamma)
+        print(self.l_alpha)
+
+        # self.l_gamma[0] = 1e2
+        # self.l_gamma[1] = 1e3
+        # self.l_gamma[2] = 1e4
+
 
 
     def update_axis(self, axis_guess):
@@ -457,16 +462,31 @@ class GradShafranovEquilibrium(Equilibrium):
         dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
         p = self.p_fn(psi)
         dp_dpsi = grad(p, psi, create_graph=True)
-        f = self.f_fn(psi) ** 2
+        f = self.f_fn(psi)
         df_dpsi = grad(f, psi, create_graph=True)
         R = x[:, 0]
         # with axis singularity:
         # residual = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
         # residual += mu0 * R**2 * dp_dpsi + f * df_dpsi
         # without axis singularity:
-        residual = - dpsi_dR + dpsi2_dR2 * R + dpsi2_dZ2 *R
-        residual += mu0 * R ** 3 * dp_dpsi + 0.5 * R * df_dpsi
-        return (residual**2).sum()
+        residual = - dpsi_dR * 1/R + dpsi2_dR2 + dpsi2_dZ2
+        residual += mu0 * R ** 2 * dp_dpsi + f * df_dpsi
+        residual = (residual**2).sum()
+        self.soft_adapt["pde"][0] = self.soft_adapt["pde"][1]
+        self.soft_adapt["pde"][1] = residual.detach().item()
+        return residual
+
+    def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
+        residual = ((psi - self.psi_0) ** 2).sum()
+        self.soft_adapt["boundary"][0] = self.soft_adapt["boundary"][1]
+        self.soft_adapt["boundary"][1] = residual.detach().item()
+        return residual
+
+    def _axis_closure(self, x: Tensor, psi: Tensor) -> Tensor:
+        residual = (psi**2).sum()
+        self.soft_adapt["axis"][0] = self.soft_adapt["axis"][1]
+        self.soft_adapt["axis"][1] = residual.detach().item()
+        return residual
 
     def _mae_pde_loss(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
@@ -480,7 +500,7 @@ class GradShafranovEquilibrium(Equilibrium):
         df_dpsi = grad(f, psi, create_graph=True)
         R = x[:, 0]
         residual = - dpsi_dR * 1/R
-        denom = dpsi2_dR2 + dpsi2_dZ2 + mu0 ** 3 * dp_dpsi + 0.5 * df_dpsi
+        denom = dpsi2_dR2 + dpsi2_dZ2 + mu0 * R ** 2 * dp_dpsi + 0.5 * df_dpsi
         return mae(residual, denom)
 
     def _pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
@@ -522,12 +542,6 @@ class GradShafranovEquilibrium(Equilibrium):
                                            0.5 * rho * df_dpsi)
         return mae(residual, denom)
 
-    def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
-        return ((psi - self.psi_0) ** 2).sum()
-
-    def _axis_closure(self, x: Tensor, psi: Tensor) -> Tensor:
-        return (psi**2).sum()
-
     def _axis_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
         # normalized or not, psi=0 on axis
         return (psi**2).sum()
@@ -552,7 +566,7 @@ class GradShafranovEquilibrium(Equilibrium):
 
         return torch.cat(grid)
 
-    def fluxplot(self, x, psi, ax, *args, **kwargs):
+    def fluxplot(self, x, psi, ax, levels=10, *args, **kwargs):
 
         R = x[:, 0]
         Z = x[:, 1]
@@ -566,7 +580,7 @@ class GradShafranovEquilibrium(Equilibrium):
         #  Detach and reshape tensors
         psi = psi.view(xx.shape)
 
-        cs = ax.contour(xx, yy, psi, levels=10, **kwargs)
+        cs = ax.contour(xx, yy, psi, levels=levels, **kwargs)
         ax.clabel(cs, inline=True, fontsize=10, fmt="%1.3f")
         ax.axis("equal")
 
