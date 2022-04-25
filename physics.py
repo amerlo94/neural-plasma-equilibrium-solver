@@ -310,12 +310,16 @@ class GradShafranovEquilibrium(Equilibrium):
         Za: float = 0.0,
         psi_0: float = 1,
         #  TODO: put these definitions in *.yaml files
-        #  TODO: Solov'ev as from VMEC wout file, to be fixed!
+        #  TODO: Solov'ev as from VMEC wout file
+        #  TODO: I believe there is an error in VMEC paper, and they wrongly copy
+        #        the boundary here: z2 goes to zero at the lcfs, and the normalization
+        #        factor is simply the highest value (it should be always 0)
+        #        In addition, r1 should be negative (as from the plot)
         # p: Tuple[float] = (0.125 / mu0, -0.125 / mu0),
-        # fsq: Tuple[float] = (0.65690779, -0.1352057),
-        # Rb: Tuple[float] = (3.99, 1.026, -0.068),
+        # fsq: Tuple[float] = (0.40340942, -0.03553045),
+        # Rb: Tuple[float] = (3.999, 1.026, -0.068),
         # Zb: Tuple[float] = (0, 1.58, 0.01),
-        # Ra: float = 3.99,
+        # Ra: float = 3.999,
         # Za: float = 0.0,
         # psi_0: float = -1,
         #  TODO: DSHAPE equilibrium, to be fixed!

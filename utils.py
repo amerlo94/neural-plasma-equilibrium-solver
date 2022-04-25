@@ -58,18 +58,20 @@ def get_profile_from_wout(wout_path: str, profile: str):
         return p_fit.coef.tolist()
     #  Get Fourier coefficients for f
     rmnc = torch.as_tensor(wout["rmnc"][:]).clone()
+    gmnc = torch.as_tensor(wout["gmnc"][:]).clone()
     bsupvmnc = torch.as_tensor(wout["bsupvmnc"][:]).clone()
-    assert rmnc.shape[0] == bsupvmnc.shape[0]
+    assert rmnc.shape[0] == bsupvmnc.shape[0] == gmnc.shape[0]
     #  Compute quantities
     R = ift(rmnc, basis="cos", endpoint=False)
     bsupv = ift(bsupvmnc, basis="cos", endpoint=False)
+    gsqrt = ift(gmnc, basis="cos", endpoint=False)
     #  Move quantities to half-mesh
     R = 0.5 * (R[1:] + R[:-1])
     bsupv = bsupv[1:]
+    gsqrt = gsqrt[1:]
     chi = 0.5 * (chi[1:] + chi[:-1])
     #  Compute f**2
-    fsq = (R**2 * bsupv) ** 2
-    fsq = fsq.mean(dim=1)
+    fsq = (R * gsqrt * bsupv).mean(dim=1) ** 2
     #  Perform fit for f squared, use fifth-order polynomial as in the paper
     f_fit = np.polynomial.Polynomial.fit(
         chi / chi_edge, fsq, deg=5, domain=[0, 1], window=[0, 1]
