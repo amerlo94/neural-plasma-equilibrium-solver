@@ -370,6 +370,10 @@ class GradShafranovEquilibrium(Equilibrium):
         self._boundary_closure_ = None
         self._pde_closure_ = None
 
+        self.a = 1
+        self.a2 = self.a ** 2
+        self.psi_02 = self.psi_0 ** 2
+
     @property
     def _mpol(self) -> int:
         return len(self.Rb)
@@ -450,13 +454,80 @@ class GradShafranovEquilibrium(Equilibrium):
         return (residual**2).sum()
 
     def _mae_pde_loss(self, x: Tensor, psi: Tensor) -> Tensor:
-        #  TODO: fix me!
-        return 0
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_dR = dpsi_dx[:, 0]
+        dpsi_dZ = dpsi_dx[:, 1]
+        dpsi2_dR2 = grad(dpsi_dR, x, create_graph=True)[:, 0]
+        dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
+        p = self.p_fn(psi)
+        dp_dpsi = grad(p, psi, create_graph=True)
+        fsq = self.fsq_fn(psi)
+        dfsq_dpsi = grad(fsq, psi, create_graph=True)
+        R = x[:, 0]
+        nom = dpsi_dR
+        denom = mu0 * R ** 3 * dp_dpsi + (0.5 * dfsq_dpsi + + dpsi2_dR2 + dpsi2_dZ2) * R
+        return mae(nom, denom)
 
     def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         return ((psi - self.psi_0) ** 2).sum()
 
     def _axis_closure(self, x: Tensor, psi: Tensor) -> Tensor:
+        return (psi**2).sum()
+
+    def _pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+        # 2010 Cerfon, Freidberg
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_drho = dpsi_dx[:, 0]
+        dpsi_dZ = dpsi_dx[:, 1]
+        dpsi2_drho2 = grad(dpsi_drho, x, create_graph=True)[:, 0]
+        dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
+        p = self.p_fn(psi)
+        dp_dpsi = grad(p, psi, create_graph=True)
+        f = self.fsq_fn(psi)
+        dfsq_dpsi = grad(f, psi, create_graph=True)
+        rho = x[:, 0]
+        residual = - dpsi_drho + rho * dpsi2_drho2 + rho * dpsi2_dZ2
+        residual += rho * (self.a2 / self.psi_02) * (mu0 * self.a2 * rho ** 2 * dp_dpsi +
+                                                     0.5 * dfsq_dpsi)
+        return (residual ** 2).sum()
+
+    # def _pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+    #     dpsi_dx = grad(psi, x, create_graph=True)
+    #     dpsi_drho = dpsi_dx[:, 0]
+    #     dpsi_dZ = dpsi_dx[:, 1]
+    #     dpsi2_drho2 = grad(dpsi_drho, x, create_graph=True)[:, 0]
+    #     dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
+    #     p = self.p_fn(psi)
+    #     dp_dpsi = grad(p, psi, create_graph=True)
+    #     f = self.fsq_fn(psi)
+    #     dfsq_dpsi = grad(f, psi, create_graph=True)
+    #     rho = x[:, 0]
+    #     residual = - self.psi_0 ** 2 * self.a ** 2 * dpsi_drho
+    #     residual += self.psi_0 ** 3 * rho * (dpsi2_drho2 + dpsi2_dZ2)
+    #     residual += self.a ** 2 * (mu0 * self.a**2 * rho ** 3 * dp_dpsi + 0.5 * rho * dfsq_dpsi)
+    #     return (residual ** 2).sum()
+
+    def _mae_pde_loss_(self, x: Tensor, psi: Tensor) -> Tensor:
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_drho = dpsi_dx[:, 0]
+        dpsi_dZ = dpsi_dx[:, 1]
+        dpsi2_drho2 = grad(dpsi_drho, x, create_graph=True)[:, 0]
+        dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
+        p = self.p_fn(psi)
+        dp_dpsi = grad(p, psi, create_graph=True)
+        f = self.fsq_fn(psi)
+        dfsq_dpsi = grad(f, psi, create_graph=True)
+        rho = x[:, 0]
+        nom = - dpsi_drho
+        denom = rho * dpsi2_drho2 + rho * dpsi2_dZ2 + \
+                rho * (self.a2 / self.psi_02) * \
+                (mu0 * self.a2 * rho ** 2 * dp_dpsi + 0.5 * dfsq_dpsi)
+        return mae(nom, denom)
+
+    def _boundary_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+        return ((psi - 1.0) ** 2).sum()
+
+    def _axis_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
         return (psi**2).sum()
 
     def psi(self, x: Tensor) -> Tensor:

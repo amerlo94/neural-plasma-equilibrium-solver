@@ -36,7 +36,7 @@ class HighBetaMLP(torch.nn.Module):
 class GradShafranovMLP(torch.nn.Module):
     def __init__(
         self,
-        width: int = 32,
+        width: int = 16,
         R0: float = 0.0,
         a: float = 1.0,
         b: float = 1.0,
