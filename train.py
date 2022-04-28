@@ -109,6 +109,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
                         psi = "max"
                     axis_guess = model.find_x_of_psi(psi, x_axis)
                     equi.update_axis(axis_guess[0])
+                    _, _ = equi.get_ab()
                     string = f"[{e:5d}/{nepochs:5d}][{s:3d}/{nsteps:3d}]"
                     string += f", update axis guess to [{axis_guess[0][0]:.2f}, {axis_guess[0][1]:.2f}]"
                     print(string)
@@ -174,4 +175,4 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
 if __name__ == "__main__":
     #  TODO: add argparse with default configuration
     # train(equilibrium="high-beta", normalized=True, nepochs=200)
-    train(equilibrium="grad-shafranov", normalized=False, nepochs=200)
+    train(equilibrium="grad-shafranov", normalized=True, nepochs=100)

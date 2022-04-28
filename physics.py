@@ -364,15 +364,21 @@ class GradShafranovEquilibrium(Equilibrium):
         self.psi_0 = psi_0
 
         #  Normalized Grad Shafranov equilibrium is not supported
-        assert self.normalized == False
+        # assert self.normalized == False
+        #
+        # self._axis_closure_ = None
+        # self._boundary_closure_ = None
+        # self._pde_closure_ = None
 
-        self._axis_closure_ = None
-        self._boundary_closure_ = None
-        self._pde_closure_ = None
-
-        self.a = 1
-        self.a2 = self.a ** 2
-        self.psi_02 = self.psi_0 ** 2
+        if self.normalized:
+            a, b = self.get_ab()
+            self.a = a
+            self.a2 = self.a ** 2
+            self.b = b
+            self.psi_02 = self.psi_0 ** 2
+        else:
+            self.a = 1
+            self.b = 1
 
     @property
     def _mpol(self) -> int:
@@ -392,6 +398,24 @@ class GradShafranovEquilibrium(Equilibrium):
             fsq += coef * psi_**i
         return fsq
 
+    def get_ab(self):
+        # minor radius a, in Z direction called b, for running axis estimate self._Ra
+
+        l2 = self.fsq[0]  # R0 in VMEC
+        f0 = -self.fsq[1] / 4 / l2  # beta1 in VMEC
+        p0 = self.p[0] * mu0  # beta0 in VMEC
+
+        R_min = math.sqrt(self._Ra ** 2 - self.psi_0 * math.sqrt(8 / p0))
+        R_max = math.sqrt(self._Ra ** 2 + self.psi_0 * math.sqrt(8 / p0))
+        l2 = math.sqrt(l2)
+        Z_max = (self.psi_0 / l2) * (1 / math.sqrt(f0))
+        Z_min = - (self.psi_0 / l2) * (1 / math.sqrt(f0))
+
+        a = (R_max - R_min) / 2
+        b = (Z_max - Z_min) / 2
+
+        return a, b
+
     def __iter__(self):
 
         generator = torch.Generator()
@@ -410,17 +434,27 @@ class GradShafranovEquilibrium(Equilibrium):
                 theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
                 Rb = torch.as_tensor([self.Rb_fn(t) for t in theta])
                 Zb = torch.as_tensor([self.Zb_fn(t) for t in theta])
-                R = (Rb - self._Ra) * s + self._Ra
-                Z = (Zb - self._Za) * s + self._Za
+                if self.normalized:
+                    R = (Rb - self._Ra) * s / self.a
+                    Z = (Zb - self._Za) * s / self.a
+                else:
+                    R = (Rb - self._Ra) * s + self._Ra
+                    Z = (Zb - self._Za) * s + self._Za
                 domain.append(torch.stack([R, Z], dim=-1))
             domain = torch.cat(domain)
             #  Boundary collocation points
             theta = (2 * torch.rand(self.nboundary, generator=generator) - 1) * math.pi
             R = torch.as_tensor([self.Rb_fn(t) for t in theta])
             Z = torch.as_tensor([self.Zb_fn(t) for t in theta])
+            if self.normalized:
+                R = (R - self._Ra) / self.a
+                Z = (Z - self._Za) / self.a
             boundary = torch.stack([R, Z], dim=-1)
             #  Axis point
-            axis = torch.Tensor([self._Ra, self._Za]).view(1, 2)
+            if self.normalized:
+                axis = torch.Tensor([0,0]).view(1,2)
+            else:
+                axis = torch.Tensor([self._Ra, self._Za]).view(1, 2)
             #  TODO: is it ok to have the same number of points as boundary, but effective always the same?
             #        the same can be achieved with a factor in front of the loss
             # axis = axis.expand(self.nboundary, 2)
@@ -475,7 +509,7 @@ class GradShafranovEquilibrium(Equilibrium):
         return (psi**2).sum()
 
     def _pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
-        # 2010 Cerfon, Freidberg
+        # 2010 Cerfon, Freidberg a=b=R0
         dpsi_dx = grad(psi, x, create_graph=True)
         dpsi_drho = dpsi_dx[:, 0]
         dpsi_dZ = dpsi_dx[:, 1]
@@ -502,9 +536,9 @@ class GradShafranovEquilibrium(Equilibrium):
     #     f = self.fsq_fn(psi)
     #     dfsq_dpsi = grad(f, psi, create_graph=True)
     #     rho = x[:, 0]
-    #     residual = - self.psi_0 ** 2 * self.a ** 2 * dpsi_drho
-    #     residual += self.psi_0 ** 3 * rho * (dpsi2_drho2 + dpsi2_dZ2)
-    #     residual += self.a ** 2 * (mu0 * self.a**2 * rho ** 3 * dp_dpsi + 0.5 * rho * dfsq_dpsi)
+    #     residual = - 1 / (self.a ** 2) * (dpsi_drho * (1/rho**2) - dpsi2_drho2)
+    #     residual += dpsi2_dZ2 * (1/self.b**2)
+    #     residual += (self.a ** 2 / self.psi_02) * mu0 * rho ** 2 * dp_dpsi + 0.5 * (1/self.psi_02) * dfsq_dpsi
     #     return (residual ** 2).sum()
 
     def _mae_pde_loss_(self, x: Tensor, psi: Tensor) -> Tensor:
@@ -559,8 +593,8 @@ class GradShafranovEquilibrium(Equilibrium):
         #  Achtung: these are not flux surfaces!
         hs = 1 / (ns - 1)
         for i in range(ns):
-            R = (Rb - self._Ra) * i * hs + self._Ra
-            Z = (Zb - self._Za) * i * hs + self._Za
+            R = ((Rb - self._Ra) * i * hs + self._Ra)
+            Z = ((Zb - self._Za) * i * hs + self._Za)
             grid.append(torch.stack([R, Z], dim=-1))
 
         return torch.cat(grid)
