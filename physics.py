@@ -434,6 +434,28 @@ class GradShafranovEquilibrium(Equilibrium):
         #  Axis should have Za=0 by symmetry
         self._Ra = axis_guess[0]
 
+    def eps(self, x: Tensor, psi: Tensor) -> Tensor:
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_dR = dpsi_dx[:, 0]
+        dpsi_dZ = dpsi_dx[:, 1]
+        dpsi2_dR2 = grad(dpsi_dR, x, retain_graph=True)[:, 0]
+        dpsi2_dZ2 = grad(dpsi_dZ, x, retain_graph=True)[:, 1]
+        p = self.p_fn(psi)
+        dp_dpsi = grad(p, psi, retain_graph=True)
+        fsq = self.fsq_fn(psi)
+        dfsq_dpsi = grad(fsq, psi, retain_graph=True)
+        R = x[:, 0]
+        #  Force components
+        gs = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
+        gs += mu0 * R**2 * dp_dpsi + 0.5 * dfsq_dpsi
+        fR = -1 / (mu0 * R**2) * dpsi_dR * gs
+        fZ = -1 / (mu0 * R**2) * dpsi_dZ * gs
+        fsq = fR**2 + fZ**2
+        #  grad-p
+        gradpsq = dp_dpsi**2 * (dpsi_dR**2 + dpsi_dZ**2)
+        #  Compute the normalized volume averaged force balance
+        return torch.sqrt((fsq / gradpsq).mean())
+
     def _pde_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
         dpsi_dR = dpsi_dx[:, 0]
@@ -450,8 +472,19 @@ class GradShafranovEquilibrium(Equilibrium):
         return (residual**2).sum()
 
     def _mae_pde_loss(self, x: Tensor, psi: Tensor) -> Tensor:
-        #  TODO: fix me!
-        return 0
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_dR = dpsi_dx[:, 0]
+        dpsi_dZ = dpsi_dx[:, 1]
+        dpsi2_dR2 = grad(dpsi_dR, x, retain_graph=True)[:, 0]
+        dpsi2_dZ2 = grad(dpsi_dZ, x, retain_graph=True)[:, 1]
+        p = self.p_fn(psi)
+        dp_dpsi = grad(p, psi, retain_graph=True)
+        fsq = self.fsq_fn(psi)
+        dfsq_dpsi = grad(fsq, psi, retain_graph=True)
+        R = x[:, 0]
+        nabla_star = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
+        denom = mu0 * R**2 * dp_dpsi + 0.5 * dfsq_dpsi
+        return mae(nabla_star, -denom)
 
     def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         return ((psi - self.psi_0) ** 2).sum()

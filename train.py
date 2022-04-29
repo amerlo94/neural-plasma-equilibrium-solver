@@ -126,6 +126,11 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
     pde_mae = equi.mae_pde_loss(x, psi_hat)
     print(f"pde mae={pde_mae:.2e}")
 
+    #  Compute the normalized averaged force
+    if equilibrium == "grad-shafranov":
+        eps = equi.eps(x, psi_hat)
+        print(f"eps={eps:.2e}")
+
     #  Scale model solution
     psi_hat = psi_hat.detach()
     if equi.normalized:
