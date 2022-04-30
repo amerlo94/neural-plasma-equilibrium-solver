@@ -69,14 +69,22 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
 
             def closure():
                 optimizer.zero_grad()
-                loss = equi.closure(
-                    x_domain,
-                    model(x_domain),
-                    x_boundary,
-                    model(x_boundary),
-                    x_axis,
-                    model(x_axis),
-                )
+                if equilibrium == "grad-shafranov":
+                    loss = equi.closure(
+                        x_domain,
+                        model(x_domain),
+                        x_boundary,
+                        model(x_boundary),
+                        x_axis,
+                        model(x_axis),
+                    )
+                elif equilibrium == "high-beta":
+                    loss = equi.closure(
+                        x_domain,
+                        model(x_domain),
+                        x_boundary,
+                        model(x_boundary),
+                    )
                 loss.backward()
                 return loss
 
@@ -86,15 +94,24 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
             global_step = e * nsteps + s
             if global_step % log_every_n_steps == log_every_n_steps - 1:
                 optimizer.zero_grad()
-                loss = equi.closure(
-                    x_domain,
-                    model(x_domain),
-                    x_boundary,
-                    model(x_boundary),
-                    x_axis,
-                    model(x_axis),
-                    return_dict=True,
-                )
+                if equilibrium == "grad-shafranov":
+                    loss = equi.closure(
+                        x_domain,
+                        model(x_domain),
+                        x_boundary,
+                        model(x_boundary),
+                        x_axis,
+                        model(x_axis),
+                        return_dict=True
+                    )
+                elif equilibrium == "high-beta":
+                    loss = equi.closure(
+                        x_domain,
+                        model(x_domain),
+                        x_boundary,
+                        model(x_boundary),
+                        return_dict=True
+                    )
                 string = f"[{e:5d}/{nepochs:5d}][{s:3d}/{nsteps:3d}]"
                 for k, v in loss.items():
                     string += f", {k}={v.item():.2e}"
@@ -109,7 +126,6 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
                         psi = "max"
                     axis_guess = model.find_x_of_psi(psi, x_axis)
                     equi.update_axis(axis_guess[0])
-                    _, _ = equi.get_ab()
                     string = f"[{e:5d}/{nepochs:5d}][{s:3d}/{nsteps:3d}]"
                     string += f", update axis guess to [{axis_guess[0][0]:.2f}, {axis_guess[0][1]:.2f}]"
                     print(string)
@@ -119,7 +135,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
     #############
 
     #  Get solution on test collocation points on a regular grid
-    x = equi.grid()
+    x = equi.grid(normalized=normalized)
     x.requires_grad_()
     psi_hat = model(x)
 
@@ -133,24 +149,25 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
         psi_hat *= equi.psi_0
 
     #  Get grid points
-    x = equi.grid(normalized=False)
-
-    #  Compute mae between model solution and analytical solution
-    if equilibrium == "high-beta":
-        psi = equi.psi(x)
-        psi_mae = mae(psi_hat, psi)
-        print(f"psi mae={psi_mae:.2e}")
+    x = equi.grid(normalized=normalized)
+    x_plot = equi.grid(normalized=False)
 
     #  Plot magnetic flux
     fig, ax = plt.subplots(1, 1, tight_layout=True)
-    equi.fluxplot(x, psi_hat, ax, linestyles="dashed")
+
     if equilibrium == "high-beta":
+        equi.fluxplot(x, psi_hat, ax, linestyles="dashed")
+        #  Compute mae between model solution and analytical solution
+        psi = equi.psi(x_plot)
+        psi_mae = mae(psi_hat, psi)
+        print(f"psi mae={psi_mae:.2e}")
         #  Plot analytical solution
         equi.fluxplot(x, psi, ax, linestyles="solid")
     elif equilibrium == "grad-shafranov":
+        equi.fluxplot(x_plot, psi_hat, ax, linestyles="dashed")
         #  TODO: fix analytical solution for the solovev case
         psi = equi.psi(x)
-        equi.fluxplot(x, psi, ax, linestyles="solid")
+        equi.fluxplot(x_plot, psi, ax, linestyles="solid")
         #  Plot VMEC flux surfaces
         #  TODO: bound VMEC solution to equilibrium, get ns from object?
         # rz, psi = get_flux_surfaces_from_wout("data/wout_DSHAPE.nc")
@@ -174,5 +191,5 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
 
 if __name__ == "__main__":
     #  TODO: add argparse with default configuration
-    # train(equilibrium="high-beta", normalized=True, nepochs=200)
+    # train(equilibrium="high-beta", normalized=True, nepochs=100)
     train(equilibrium="grad-shafranov", normalized=True, nepochs=100)
