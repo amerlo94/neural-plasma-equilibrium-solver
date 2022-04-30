@@ -453,8 +453,10 @@ class GradShafranovEquilibrium(Equilibrium):
         fsq = fR**2 + fZ**2
         #  grad-p
         gradpsq = dp_dpsi**2 * (dpsi_dR**2 + dpsi_dZ**2)
-        #  Compute the normalized volume averaged force balance
-        return torch.sqrt((fsq / gradpsq).mean())
+        #  Compute the normalized averaged force balance
+        #  The `x` domain is not enforced to be on a equally spaced grid,
+        #  so the sum() here is not strictly an equivalent to an integral
+        return torch.sqrt(fsq.sum() / gradpsq.sum())
 
     def _pde_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
