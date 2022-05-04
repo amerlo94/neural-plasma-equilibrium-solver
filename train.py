@@ -5,7 +5,7 @@ import torch
 import matplotlib.pyplot as plt
 
 from models import HighBetaMLP, GradShafranovMLP
-from physics import HighBetaEquilibrium, GradShafranovEquilibrium
+from physics import HighBetaEquilibrium, GradShafranovEquilibrium, InverseGSEquilibrium
 from utils import log_gradients, mae, get_flux_surfaces_from_wout
 
 torch.set_default_tensor_type(torch.DoubleTensor)
@@ -13,7 +13,7 @@ torch.set_default_tensor_type(torch.DoubleTensor)
 
 def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
 
-    assert equilibrium in ("high-beta", "grad-shafranov")
+    assert equilibrium in ("high-beta", "grad-shafranov", "inverse-grad-shafranov")
 
     torch.manual_seed(seed)
 
@@ -25,7 +25,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
         if not equi.normalized:
             params = {"a": equi.a, "psi_0": equi.psi_0}
         model = HighBetaMLP(**params)
-    else:
+    elif equilibrium == "grad-shafranov":
         equi = GradShafranovEquilibrium(**params)
         params = {}
         if not equi.normalized:
@@ -36,6 +36,10 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
                 "psi_0": equi.psi_0,
             }
         model = GradShafranovMLP(**params)
+    elif equilibrium == "inverse-grad-shafranov":
+        model = InverseGSEquilibrium(**params)
+    else:
+        raise NotImplementedError(f"{equilibrium}")
 
     model.train()
 
@@ -196,5 +200,6 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
 
 if __name__ == "__main__":
     #  TODO: add argparse with default configuration
-    # train(equilibrium="high-beta", normalized=True, nepochs=100)
-    train(equilibrium="grad-shafranov", normalized=True, nepochs=100)
+    # train(equilibrium="high-beta", normalized=True, nepochs=200)
+    train(equilibrium="grad-shafranov", normalized=False, nepochs=100)
+    train(equilibrium="inverse-grad-shafranov", nepochs=100)

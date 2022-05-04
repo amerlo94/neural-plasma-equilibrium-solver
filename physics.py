@@ -420,8 +420,8 @@ class GradShafranovEquilibrium(Equilibrium):
             domain = []
             ns = int(math.sqrt(self.ndomain))
             #  TODO: use random point and speed up theta grid computation with ift
-            # hs = torch.rand(ns, generator=generator) ** 2
-            hs = torch.linspace(0, 1, ns + 2)[1:-1] ** 2
+            hs = torch.rand(ns, generator=generator) ** 2
+            #hs = torch.linspace(0, 1, ns + 2)[1:-1] ** 2
             for s in hs:
                 theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
                 # theta = (2 * torch.linspace(0, 1, ns)) * math.pi
@@ -585,6 +585,7 @@ class GradShafranovEquilibrium(Equilibrium):
         See Bauer1978 for the nomenclature.
 
         Achtung: this is the analytical solution only in case of a Solov'ev equilibrium.
+        Could be improved: https://arxiv.org/pdf/1210.2113.pdf section 6.1
         """
         R = x[:, 0]
         Z = x[:, 1]
@@ -704,3 +705,157 @@ class GradShafranovEquilibrium(Equilibrium):
         ax.axis("equal")
 
         return ax
+
+
+class InverseGSEquilibrium(Equilibrium):
+    """
+    The default case is a Solov'ev equilibrium as in the original VMEC paper.
+
+    This repository keeps VMEC 2D equilibria under the `data` folder,
+    they are taken from the DESC repository:
+
+    https://github.com/PlasmaControl/DESC/tree/master/tests/inputs
+    """
+
+    def __init__(
+        self,
+        p: Tuple[float] = (0.125 / mu0, -0.125 / mu0),
+        fsq: Tuple[float] = (4, -4 * 4 / 10),
+        Rb: Tuple[float] = (
+            3.9334e00,
+            -1.0258e00,
+            -6.8083e-02,
+            -9.0720e-03,
+            -1.4531e-03,
+        ),
+        Zb: Tuple[float] = (0, math.sqrt(10) / 2, 0, 0, 0),
+        psi_0: float = 1,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+
+        #  Pressure and current profile
+        self.p = torch.as_tensor(p)
+        self.fsq = torch.as_tensor(fsq)
+
+        # psi_boundary
+        self.psi_0 = psi_0
+
+        #  Boundary definition
+        assert len(Rb) == len(Zb)
+        self.Rb = torch.as_tensor(Rb)
+        self.Zb = torch.as_tensor(Zb)
+
+    @property
+    def _mpol(self) -> int:
+        return len(self.Rb)
+
+    def __iter__(self):
+
+        generator = torch.Generator()
+        generator.manual_seed(self.seed)
+
+
+        while True:
+            # collocation points
+            # domain
+            ns = int(math.sqrt(self.ndomain))
+            theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
+            r = torch.linspace(0,1,ns+2)[1:-1] ** 2
+            # r = torch.rand(ns, generator=generator) ** 2
+            domain = torch.meshgrid(r, theta)
+            domain = torch.cat(domain)
+            # boundary
+            theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
+            r = torch.ones_like(theta)
+            boundary = torch.stack([r, theta], dim=-1)
+            # axis, probably not required if always at (0,0)
+            # axis = torch.Tensor([0,0]).view(1,2)
+            yield domain, boundary, None
+
+    def Rb_fn(self, theta):
+        basis = torch.cos(torch.as_tensor([i * theta for i in range(self._mpol)]))
+        return (self.Rb * basis).sum()
+
+    def Zb_fn(self, theta):
+        basis = torch.sin(torch.as_tensor([i * theta for i in range(self._mpol)]))
+        return (self.Zb * basis).sum()
+
+    def p_fn(self, rho):
+        # p = p * rho^l l=0,2,4,...
+        # rho = sqrt(s) = sqrt(psi/psi_0)
+        p = 0
+        for i, coef in enumerate(self.p):
+            p += coef * rho**(i*2)
+        return p
+
+    def iota_fn(self, rho):
+        # iota = iota * rho^l l=0,2,4,...
+        # rho = sqrt(s) = sqrt(psi/psi_0)
+        iota = 0
+        for i, coef in enumerate(self.iota):
+            iota += coef * rho**(i*2)
+        return iota
+
+    def _lam(self):
+        # return lambda as the free coordinate
+        return torch.zeros(1)
+
+    def _jacobian(self, R, Z, rtheta):
+        # area element of metric tensor in axisymmetric toroidal domain
+        # eq. 17a&17b of Hirshman&Whitson 1983
+        dR_drtheta = grad(R, rtheta, create_graph=True)
+        dZ_drtheta = grad(Z, rtheta, create_graph=True)
+        dR_drho = dR_drtheta[:, 0]
+        dR_dtheta = dR_drtheta[:, 1]
+        dZ_drho = dZ_drtheta[:, 0]
+        dZ_dtheta = dZ_drtheta[:, 1]
+        return R * (dR_dtheta * dZ_drho - dR_drho * dZ_dtheta)
+
+    def _F_of_rho(self, R, jacobian, theta):
+        # psi' = self.psi_0
+        flux_term = (self.psi_0 * torch.pow(R,2))/jacobian
+        lambda_term = 1 + grad(self._lam(), theta, create_graph=True)
+        return flux_term * lambda_term
+
+    def F_covariant_rho(self, x, rtheta):
+        R = x[:,0]
+        Z = x[:,1]
+        rho = rtheta[:, 0]
+        theta = rtheta[:, 1]
+        f_iota = self.iota_fn(rho)
+        f_p = self.p_fn(rho)
+        dR_drtheta = grad(R, rtheta, create_graph=True)
+        dZ_drtheta = grad(Z, rtheta, create_graph=True)
+        dR_drho = dR_drtheta[:, 0]
+        dR_dtheta = dR_drtheta[:, 1]
+        dZ_drho = dZ_drtheta[:, 0]
+        dZ_dtheta = dZ_drtheta[:, 1]
+        g_theta2 = dR_dtheta * dR_dtheta + dZ_dtheta * dZ_dtheta
+        g_rhotheta = dR_drho * dR_dtheta + dZ_drho * dZ_dtheta
+        jacobian = self._jacobian(R, Z, rtheta)
+        dchi_drho = self.psi_0 * f_iota
+        F_of_rho = self._F_of_rho(R, jacobian, theta)
+        dFrho_drho = grad(F_of_rho, rho, create_graph=True)
+        dp_drho = grad(f_p, rho, create_graph=True)
+
+        term1 = (dchi_drho * g_theta2) / jacobian
+        term1 = grad(term1, rho, create_graph=True)
+        term2 = (dchi_drho * g_rhotheta) / jacobian
+        term2 = grad(term2, theta, create_graph=True)
+        brackets = term1 - term2
+        F_cov_rho = dchi_drho / (mu0 * jacobian) * brackets * (F_of_rho * dFrho_drho) \
+                    / (mu0 * torch.pow(R, 2)) + dp_drho
+        return F_cov_rho
+
+    def _pde_closure(self, x: Tensor, psi: Tensor) -> Tensor:
+        return self.F_covariant_rho(x, rtheta=psi)
+
+    def _mae_pde_loss(self, x: Tensor, cartesians: Tensor) -> Tensor:
+        return torch.zeros(1)
+    def _boundary_closure(self, x: Tensor, cartesians: Tensor) -> Tensor:
+        return torch.zeros(1)
+    def _axis_closure(self, x: Tensor, cartesians: Tensor) -> Tensor:
+        return torch.zeros(1)
+
+
