@@ -5,7 +5,7 @@ import torch
 from torch import Tensor
 from torch.utils.data import IterableDataset
 
-from utils import ift, grad, mae
+from utils import ift, grad, mae, get_profile_from_wout, get_wout
 
 
 mu0 = 4 * math.pi * 1e-7
@@ -309,6 +309,8 @@ class GradShafranovEquilibrium(Equilibrium):
         Ra: float = 3.9332,
         Za: float = 0.0,
         psi_0: float = 1,
+        wout_path: Optional[str] = None,
+        is_solovev: Optional[bool] = True,
         #  TODO: put these definitions in *.yaml files
         #  TODO: Solov'ev as from VMEC wout file
         # p: Tuple[float] = (0.125 / mu0, -0.125 / mu0),
@@ -366,9 +368,58 @@ class GradShafranovEquilibrium(Equilibrium):
         #  Normalized Grad Shafranov equilibrium is not supported
         assert self.normalized == False
 
+        #  VMEC wout file
+        self.wout_path = wout_path
+
+        #  Is a Solov'ev equilibrium?
+        self.is_solovev = is_solovev
+
         self._axis_closure_ = None
         self._boundary_closure_ = None
         self._pde_closure_ = None
+
+    @classmethod
+    def from_vmec(cls, wout_path, **kwargs):
+        """
+        Instatiate Equilibrium from VMEC wout file.
+
+        Example:
+
+        >>> from physics import GradShafranovEquilibrium
+        >>> equi = GradShafranovEquilibrium.from_vmec("data/wout_DSHAPE.nc")
+        >>> equi.psi_0
+        -0.665
+        """
+
+        pressure = get_profile_from_wout(wout_path, "p")
+        fsq = get_profile_from_wout(wout_path, "f")
+
+        wout = get_wout(wout_path)
+
+        Rb = wout["rmnc"][-1].data
+        Zb = wout["zmns"][-1].data
+
+        #  Remove trailing zeros in boundary definition
+        Rb = Rb[Rb != 0]
+        Zb = Zb[: len(Rb)]
+        Rb, Zb = map(tuple, (Rb, Zb))
+
+        Ra = wout["raxis_cc"][:].data.item()
+        Za = wout["zaxis_cs"][:].data.item()
+
+        psi_0 = wout["chi"][-1].data.item()
+
+        return cls(
+            p=pressure,
+            fsq=fsq,
+            Rb=Rb,
+            Zb=Zb,
+            Ra=Ra,
+            Za=Za,
+            psi_0=psi_0,
+            wout_path=wout_path,
+            **kwargs,
+        )
 
     @property
     def _mpol(self) -> int:
@@ -500,6 +551,7 @@ class GradShafranovEquilibrium(Equilibrium):
 
         Achtung: this is the analytical solution only in case of a Solov'ev equilibrium.
         """
+        assert self.is_solovev == True
         R = x[:, 0]
         Z = x[:, 1]
         l2 = self.fsq[0]  # R0**2 in VMEC

@@ -56,12 +56,6 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
     #  Frequency for axis guess update
     update_axis_every_n_epochs = 20
 
-    # #######
-    # rz, psi = get_flux_surfaces_from_wout("data/wout_SOLOVEV.nc")
-    # psi = torch.repeat_interleave(psi, int(len(rz) / len(psi)))
-    # rz.requires_grad_()
-    # #####
-
     for e in range(nepochs):
         for s, (x_domain, x_boundary, x_axis) in zip(range(nsteps), equi):
 
@@ -139,8 +133,12 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
     #  Get grid points
     x = equi.grid(normalized=False)
 
+    has_analytical_solution = equilibrium == "high-beta" or (
+        equilibrium == "grad-shafranov" and equi.is_solovev
+    )
+
     #  Compute mae between model solution and analytical solution
-    if equilibrium == "high-beta":
+    if has_analytical_solution:
         psi = equi.psi(x)
         psi_mae = mae(psi_hat, psi)
         print(f"psi mae={psi_mae:.2e}")
@@ -148,20 +146,13 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
     #  Plot magnetic flux
     fig, ax = plt.subplots(1, 1, tight_layout=True)
     equi.fluxplot(x, psi_hat, ax, linestyles="dashed")
-    if equilibrium == "high-beta":
+    if has_analytical_solution:
         #  Plot analytical solution
         equi.fluxplot(x, psi, ax, linestyles="solid")
-    elif equilibrium == "grad-shafranov":
-        #  TODO: fix analytical solution for the solovev case
-        psi = equi.psi(x)
-        equi.fluxplot(x, psi, ax, linestyles="solid")
+    if equilibrium == "grad-shafranov" and equi.wout_path is not None:
         #  Plot VMEC flux surfaces
-        #  TODO: bound VMEC solution to equilibrium, get ns from object?
-        # rz, psi = get_flux_surfaces_from_wout("data/wout_DSHAPE.nc")
-        # rz, psi = get_flux_surfaces_from_wout("data/wout_SOLOVEV.nc")
-        # equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
-        #  TODO: remove me, this is just for debugging!
-        # equi.fluxsurfacesplot(x, ax)
+        rz, psi = get_flux_surfaces_from_wout(equi.wout_path)
+        equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
 
     #  Plot scatter plot
     if equilibrium == "high-beta":
@@ -178,5 +169,4 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
 
 if __name__ == "__main__":
     #  TODO: add argparse with default configuration
-    # train(equilibrium="high-beta", normalized=True, nepochs=200)
     train(equilibrium="grad-shafranov", normalized=False, nepochs=200)
