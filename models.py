@@ -132,3 +132,38 @@ class GradShafranovMLP(torch.nn.Module):
         self.requires_grad_(True)
 
         return initial_guess.detach()
+
+
+class InverseGradShafranovMLP(torch.nn.Module):
+    #  (R,Z) = NN(s, theta) with s some radial flux coordinate
+    #    here chosen as r=sqrt(psi/psi_0) - same as DESC
+    def __init__(self,
+                 width: int = 16,
+                 R0: float = 0.0,
+                 ) -> None:
+        super().__init__()
+
+        self.R0 = R0
+
+        self.fc1 = torch.nn.Linear(2, width)
+        self.tanh = torch.nn.Tanh()
+        self.fc2 = torch.nn.Linear(width, 2)
+
+        #  Initialize last bias to zero, since NN(0,0)=0
+        torch.nn.init.zeros_(self.fc2.bias)
+        torch.nn.init.normal_(self.fc2.weight, std=3e-2)
+
+    def forward(self, x: Tensor) -> Tensor:
+        # s = x[:, 0]
+        # theta = x[:, 1]
+
+        RZ = self.fc1(x)
+        RZ = self.tanh(RZ / 2)
+        RZ = self.fc2(RZ)
+
+        RZ[:, 0] = RZ[:, 0] + self.R0
+        return RZ
+
+
+
+

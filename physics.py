@@ -420,8 +420,9 @@ class GradShafranovEquilibrium(Equilibrium):
             domain = []
             ns = int(math.sqrt(self.ndomain))
             #  TODO: use random point and speed up theta grid computation with ift
-            hs = torch.rand(ns, generator=generator) ** 2
-            #hs = torch.linspace(0, 1, ns + 2)[1:-1] ** 2
+            #  TODO: Normalized version does not work with random hs, why?
+            # hs = torch.rand(ns, generator=generator) ** 2
+            hs = torch.linspace(0, 1, ns + 2)[1:-1] ** 2
             for s in hs:
                 theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
                 # theta = (2 * torch.linspace(0, 1, ns)) * math.pi
@@ -465,6 +466,7 @@ class GradShafranovEquilibrium(Equilibrium):
         self._Ra = axis_guess[0]
 
     def eps(self, x: Tensor, psi: Tensor) -> Tensor:
+        # TODO this needs to be normalized as well
         dpsi_dx = grad(psi, x, create_graph=True)
         dpsi_dR = dpsi_dx[:, 0]
         dpsi_dZ = dpsi_dx[:, 1]
@@ -708,27 +710,19 @@ class GradShafranovEquilibrium(Equilibrium):
 
 
 class InverseGSEquilibrium(Equilibrium):
-    """
-    The default case is a Solov'ev equilibrium as in the original VMEC paper.
-
-    This repository keeps VMEC 2D equilibria under the `data` folder,
-    they are taken from the DESC repository:
-
-    https://github.com/PlasmaControl/DESC/tree/master/tests/inputs
-    """
 
     def __init__(
         self,
-        p: Tuple[float] = (0.125 / mu0, -0.125 / mu0),
-        fsq: Tuple[float] = (4, -4 * 4 / 10),
+        # DSHAPE from DESC
+        # https://github.com/PlasmaControl/DESC/blob/master/examples/DESC/DSHAPE
+        p: Tuple[float] = (1.6e+3, -3.2e+3, 1.6e+3),
+        iota: Tuple[float] = (1, -0.67),
         Rb: Tuple[float] = (
-            3.9334e00,
-            -1.0258e00,
-            -6.8083e-02,
-            -9.0720e-03,
-            -1.4531e-03,
+            3.51,
+            1,
+            0.106, 0, 0
         ),
-        Zb: Tuple[float] = (0, math.sqrt(10) / 2, 0, 0, 0),
+        Zb: Tuple[float] = (1.47, -0.16, 0, 0, 0),
         psi_0: float = 1,
         **kwargs,
     ) -> None:
@@ -736,7 +730,7 @@ class InverseGSEquilibrium(Equilibrium):
 
         #  Pressure and current profile
         self.p = torch.as_tensor(p)
-        self.fsq = torch.as_tensor(fsq)
+        self.iota = torch.as_tensor(iota)
 
         # psi_boundary
         self.psi_0 = psi_0
@@ -763,8 +757,7 @@ class InverseGSEquilibrium(Equilibrium):
             theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
             r = torch.linspace(0,1,ns+2)[1:-1] ** 2
             # r = torch.rand(ns, generator=generator) ** 2
-            domain = torch.meshgrid(r, theta)
-            domain = torch.cat(domain)
+            domain = torch.cartesian_prod(r, theta)
             # boundary
             theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
             r = torch.ones_like(theta)
@@ -797,9 +790,12 @@ class InverseGSEquilibrium(Equilibrium):
             iota += coef * rho**(i*2)
         return iota
 
-    def _lam(self):
+    def _lam(self, theta):
+        # \lambda = f(\rho, \theta, \zeta)
         # return lambda as the free coordinate
-        return torch.zeros(1)
+        # lambda = 0 for now, theta-theta s.t. torch AD registers operation
+        lam = theta - theta
+        return lam
 
     def _jacobian(self, R, Z, rtheta):
         # area element of metric tensor in axisymmetric toroidal domain
@@ -812,10 +808,16 @@ class InverseGSEquilibrium(Equilibrium):
         dZ_dtheta = dZ_drtheta[:, 1]
         return R * (dR_dtheta * dZ_drho - dR_drho * dZ_dtheta)
 
-    def _F_of_rho(self, R, jacobian, theta):
-        # psi' = self.psi_0
-        flux_term = (self.psi_0 * torch.pow(R,2))/jacobian
-        lambda_term = 1 + grad(self._lam(), theta, create_graph=True)
+    def _F_of_rho(self, R, jacobian, theta, rho):
+        # dpsi_drho = psi' = self.psi_0,
+        # but this excludes dpsi_drho from autograd graph
+        # todo
+        # the sqrt(rho**2) operation exists because otherwise
+        # pytorch AD engine does not pick up on the operation (rho*psi_0), why??
+        psi = (torch.sqrt(rho**2) * self.psi_0)
+        dpsi_drho = grad(psi, rho, create_graph=True)
+        flux_term = (dpsi_drho * R**2)/jacobian
+        lambda_term = 1 + grad(self._lam(theta), theta, create_graph=True)
         return flux_term * lambda_term
 
     def F_covariant_rho(self, x, rtheta):
@@ -835,7 +837,7 @@ class InverseGSEquilibrium(Equilibrium):
         g_rhotheta = dR_drho * dR_dtheta + dZ_drho * dZ_dtheta
         jacobian = self._jacobian(R, Z, rtheta)
         dchi_drho = self.psi_0 * f_iota
-        F_of_rho = self._F_of_rho(R, jacobian, theta)
+        F_of_rho = self._F_of_rho(R, jacobian, theta, rho)
         dFrho_drho = grad(F_of_rho, rho, create_graph=True)
         dp_drho = grad(f_p, rho, create_graph=True)
 
@@ -848,14 +850,22 @@ class InverseGSEquilibrium(Equilibrium):
                     / (mu0 * torch.pow(R, 2)) + dp_drho
         return F_cov_rho
 
-    def _pde_closure(self, x: Tensor, psi: Tensor) -> Tensor:
-        return self.F_covariant_rho(x, rtheta=psi)
+    def _pde_closure(self, x: Tensor, cartesians: Tensor) -> Tensor:
+        return self.F_covariant_rho(cartesians, rtheta=x)
 
     def _mae_pde_loss(self, x: Tensor, cartesians: Tensor) -> Tensor:
         return torch.zeros(1)
+
     def _boundary_closure(self, x: Tensor, cartesians: Tensor) -> Tensor:
-        return torch.zeros(1)
+        theta = x[:, 1]
+        Rb = torch.as_tensor([self.Rb_fn(t) for t in theta])
+        Zb = torch.as_tensor([self.Zb_fn(t) for t in theta])
+        return torch.pow((Rb - cartesians[:, 0]) + (Zb - cartesians[: ,1]), 2)
+
     def _axis_closure(self, x: Tensor, cartesians: Tensor) -> Tensor:
-        return torch.zeros(1)
+        # at axis (s,theta)=(0,0)
+        axis_loc = torch.Tensor([self.Rb[0], 0])
+        return torch.pow(cartesians - axis_loc, 2)
+
 
 
