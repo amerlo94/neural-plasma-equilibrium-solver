@@ -485,7 +485,8 @@ class GradShafranovEquilibrium(Equilibrium):
         #  Axis should have Za=0 by symmetry
         self._Ra = axis_guess[0]
 
-    def eps(self, x: Tensor, psi: Tensor) -> Tensor:
+    def eps(self, x: Tensor, psi: Tensor, reduction: Optional[str] = "mean") -> Tensor:
+        assert reduction in ("mean", None)
         dpsi_dx = grad(psi, x, create_graph=True)
         dpsi_dR = dpsi_dx[:, 0]
         dpsi_dZ = dpsi_dx[:, 1]
@@ -504,10 +505,14 @@ class GradShafranovEquilibrium(Equilibrium):
         fsq = fR**2 + fZ**2
         #  grad-p
         gradpsq = dp_dpsi**2 * (dpsi_dR**2 + dpsi_dZ**2)
-        #  Compute the normalized averaged force balance
-        #  The `x` domain is not enforced to be on a equally spaced grid,
-        #  so the sum() here is not strictly an equivalent to an integral
-        return torch.sqrt(fsq.sum() / gradpsq.sum())
+        if reduction is None:
+            #  Compute the local normalized force balance
+            return torch.sqrt(fsq / gradpsq)
+        if reduction == "mean":
+            #  Compute the normalized averaged force balance
+            #  The `x` domain is not enforced to be on a equally spaced grid,
+            #  so the sum() here is not strictly an equivalent to an integral
+            return torch.sqrt(fsq.sum() / gradpsq.sum())
 
     def _pde_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
@@ -581,8 +586,9 @@ class GradShafranovEquilibrium(Equilibrium):
 
         return torch.cat(grid)
 
-    def fluxplot(self, x, psi, ax, *args, **kwargs):
+    def fluxplot(self, x, psi, ax, filled: Optional[bool] = False, **kwargs):
 
+        x = x.detach()
         R = x[:, 0]
         Z = x[:, 1]
 
@@ -593,10 +599,14 @@ class GradShafranovEquilibrium(Equilibrium):
         yy = Z.view(ns, ns)
 
         #  Detach and reshape tensors
-        psi = psi.view(xx.shape)
+        psi = psi.detach().view(xx.shape)
 
-        cs = ax.contour(xx, yy, psi, levels=10, **kwargs)
-        ax.clabel(cs, inline=True, fontsize=10, fmt="%1.3f")
+        if filled:
+            cs = ax.contourf(xx, yy, psi, **kwargs)
+            ax.get_figure().colorbar(cs)
+        else:
+            cs = ax.contour(xx, yy, psi, levels=10, **kwargs)
+            ax.clabel(cs, inline=True, fontsize=10, fmt="%1.3f")
         ax.axis("equal")
 
         ax.set_xlabel(r"$R [m]$")

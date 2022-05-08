@@ -3,6 +3,7 @@
 import math
 import torch
 import matplotlib.pyplot as plt
+from matplotlib import ticker
 
 from models import HighBetaMLP, GradShafranovMLP
 from physics import HighBetaEquilibrium, GradShafranovEquilibrium
@@ -126,12 +127,11 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
         print(f"eps={eps:.2e}")
 
     #  Scale model solution
-    psi_hat = psi_hat.detach()
     if equi.normalized:
         psi_hat *= equi.psi_0
 
     #  Get grid points
-    x = equi.grid(normalized=False)
+    grid = equi.grid(normalized=False)
 
     has_analytical_solution = equilibrium == "high-beta" or (
         equilibrium == "grad-shafranov" and equi.is_solovev
@@ -139,16 +139,16 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
 
     #  Compute mae between model solution and analytical solution
     if has_analytical_solution:
-        psi = equi.psi(x)
-        psi_mae = mae(psi_hat, psi)
+        psi = equi.psi(grid)
+        psi_mae = mae(psi_hat.detach(), psi)
         print(f"psi mae={psi_mae:.2e}")
 
     #  Plot magnetic flux
     fig, ax = plt.subplots(1, 1, tight_layout=True)
-    equi.fluxplot(x, psi_hat, ax, linestyles="dashed")
+    equi.fluxplot(grid, psi_hat, ax, linestyles="dashed")
     if has_analytical_solution:
         #  Plot analytical solution
-        equi.fluxplot(x, psi, ax, linestyles="solid")
+        equi.fluxplot(grid, psi, ax, linestyles="solid")
     if equilibrium == "grad-shafranov" and equi.wout_path is not None:
         #  Plot VMEC flux surfaces
         rz, psi = get_flux_surfaces_from_wout(equi.wout_path)
@@ -162,6 +162,17 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
         fig.colorbar(im, ax=ax)
         ax.set_xlabel(r"$\hat{\Psi}$")
         ax.set_ylabel(r"$\Psi$")
+
+    #  Plot eps over entire domain
+    if equilibrium == "grad-shafranov":
+        fig, ax = plt.subplots(1, 1, tight_layout=True)
+        equi.fluxplot(
+            x,
+            equi.eps(x, psi_hat, reduction=None),
+            ax,
+            filled=True,
+            locator=ticker.LogLocator(),
+        )
 
     #  Show figures
     plt.show()
