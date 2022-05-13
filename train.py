@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from models import HighBetaMLP, GradShafranovMLP, InverseGradShafranovMLP
 from physics import HighBetaEquilibrium, GradShafranovEquilibrium, InverseGSEquilibrium
 from utils import log_gradients, mae, get_flux_surfaces_from_wout
+from plot_utils import plot_solution, plot_grid
 
 torch.set_default_tensor_type(torch.DoubleTensor)
 
@@ -56,7 +57,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
 
     model.train()
 
-    learning_rate = 1e-1
+    learning_rate = 0.2
     optimizer = torch.optim.LBFGS(
         model.parameters(),
         lr=learning_rate,
@@ -86,7 +87,8 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
 
             def closure():
                 optimizer.zero_grad()
-                if equilibrium == "grad-shafranov":
+                if equilibrium == "grad-shafranov" or \
+                        (equilibrium == "inverse-grad-shafranov"):
                     loss = equi.closure(
                         x_domain,
                         model(x_domain),
@@ -95,8 +97,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
                         x_axis,
                         model(x_axis),
                     )
-                elif (equilibrium == "high-beta") or \
-                        (equilibrium == "inverse-grad-shafranov"):
+                elif (equilibrium == "high-beta"):
                     loss = equi.closure(
                         x_domain,
                         model(x_domain),
@@ -112,7 +113,8 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
             global_step = e * nsteps + s
             if global_step % log_every_n_steps == log_every_n_steps - 1:
                 optimizer.zero_grad()
-                if equilibrium == "grad-shafranov":
+                if equilibrium == "grad-shafranov" or \
+                        (equilibrium == "inverse-grad-shafranov"):
                     loss = equi.closure(
                         x_domain,
                         model(x_domain),
@@ -122,8 +124,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
                         model(x_axis),
                         return_dict=True
                     )
-                elif equilibrium == "high-beta" or \
-                        (equilibrium == "inverse-grad-shafranov"):
+                elif equilibrium == "high-beta":
                     loss = equi.closure(
                         x_domain,
                         model(x_domain),
@@ -158,10 +159,6 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
     x.requires_grad_()
     psi_hat = model(x)
 
-    #  Compute normalized residual error
-    pde_mae = equi.mae_pde_loss(x, psi_hat)
-    print(f"pde mae={pde_mae:.2e}")
-
     #  Compute the normalized averaged force
     if equilibrium == "grad-shafranov":
         eps = equi.eps(x, psi_hat)
@@ -177,9 +174,12 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
     x_plot = equi.grid(normalized=False)
 
     #  Plot magnetic flux
-    fig, ax = plt.subplots(1, 1, tight_layout=True)
+    fig, ax = plt.subplots(1, 1, tight_layout=True, dpi=400)
 
     if equilibrium == "high-beta":
+        #  Compute normalized residual error
+        pde_mae = equi.mae_pde_loss(x, psi_hat)
+        print(f"pde mae={pde_mae:.2e}")
         equi.fluxplot(x, psi_hat, ax, linestyles="dashed")
         #  Compute mae between model solution and analytical solution
         psi = equi.psi(x_plot)
@@ -188,6 +188,9 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
         #  Plot analytical solution
         equi.fluxplot(x, psi, ax, linestyles="solid")
     elif equilibrium == "grad-shafranov":
+        #  Compute normalized residual error
+        pde_mae = equi.mae_pde_loss(x, psi_hat)
+        print(f"pde mae={pde_mae:.2e}")
         equi.fluxplot(x_plot, psi_hat, ax, linestyles="dashed")
         #  TODO: fix analytical solution for the solovev case
         psi = equi.psi(x)
@@ -199,6 +202,21 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
         # equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
         #  TODO: remove me, this is just for debugging!
         # equi.fluxsurfacesplot(x, ax)
+    elif equilibrium == "inverse-grad-shafranov":
+        rz, psi = get_flux_surfaces_from_wout("data/wout_DSHAPE.nc")
+        equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
+        equi.fluxplot(psi_hat, ax, linestyles="dashed")
+        plt.show()
+        fig, ax = plt.subplots(1, 1, tight_layout=True)
+        x = equi.grid(normalized=normalized)
+        x.requires_grad_()
+        preds = model(x)
+        equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
+        equi.fluxplot(preds.detach().numpy(), ax)
+        plot_solution(x, preds, colorvar=1, ax=ax)
+        plt.show()
+
+
 
     #  Plot scatter plot
     if equilibrium == "high-beta":
@@ -216,5 +234,5 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
 if __name__ == "__main__":
     #  TODO: add argparse with default configuration
     # train(equilibrium="high-beta", normalized=True, nepochs=200)
-    train(equilibrium="grad-shafranov", normalized=True, nepochs=100)
-    # train(equilibrium="inverse-grad-shafranov", nepochs=50)
+    # train(equilibrium="grad-shafranov", normalized=True, nepochs=100)
+    train(equilibrium="inverse-grad-shafranov", nepochs=150)

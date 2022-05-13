@@ -151,17 +151,26 @@ class InverseGradShafranovMLP(torch.nn.Module):
 
         #  Initialize last bias to zero, since NN(0,0)=0
         torch.nn.init.zeros_(self.fc2.bias)
+        # with torch.no_grad():
+        #     self.fc2.bias[0].data = self.R0
         torch.nn.init.normal_(self.fc2.weight, std=3e-2)
 
     def forward(self, x: Tensor) -> Tensor:
         # s = x[:, 0]
         # theta = x[:, 1]
 
+        # x = torch.cat((
+        #     x[:, 0].unsqueeze(1),
+        #     torch.sin(x[:, 1]).unsqueeze(1),
+        #     torch.cos(x[:, 1]).unsqueeze(1)
+        # ), dim=1)
+
         RZ = self.fc1(x)
         RZ = self.tanh(RZ / 2)
-        RZ = self.fc2(RZ)
+        RZ = self.fc2(RZ)  # * x[:, :1]
 
         RZ[:, 0] = RZ[:, 0] + self.R0
+
         return RZ
 
 
