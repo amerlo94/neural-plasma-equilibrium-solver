@@ -450,9 +450,7 @@ class GradShafranovEquilibrium(Equilibrium):
             #  Achtung: these are not flux surfaces!
             domain = []
             ns = int(math.sqrt(self.ndomain))
-            #  TODO: use random point and speed up theta grid computation with ift
-            # hs = torch.rand(ns, generator=generator) ** 2
-            hs = torch.linspace(0, 1, ns + 2)[1:-1] ** 2
+            hs = torch.rand(ns, generator=generator) ** 2
             for s in hs:
                 theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
                 Rb = torch.as_tensor([self.Rb_fn(t) for t in theta])
