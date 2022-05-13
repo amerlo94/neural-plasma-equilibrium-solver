@@ -1,6 +1,11 @@
 """Train script."""
 
+import argparse
 import math
+from copy import copy
+from typing import Dict, Any
+
+import yaml
 import torch
 import matplotlib.pyplot as plt
 from matplotlib import ticker
@@ -12,35 +17,60 @@ from utils import log_gradients, mae, get_flux_surfaces_from_wout
 torch.set_default_tensor_type(torch.DoubleTensor)
 
 
-def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
+def get_equilibrium_and_model(**equi_kws):
 
-    assert equilibrium in ("high-beta", "grad-shafranov")
+    _equi_kws = copy(equi_kws)
+    target = _equi_kws.pop("_target_")
 
-    torch.manual_seed(seed)
+    model_kws = {}
 
-    #  TODO: implement me argparse or make me cleaner
-    params = {"normalized": normalized, "seed": seed}
-    if equilibrium == "high-beta":
-        equi = HighBetaEquilibrium(**params)
-        params = {}
+    if target == "high-beta":
+        equi = HighBetaEquilibrium(**_equi_kws)
         if not equi.normalized:
-            params = {"a": equi.a, "psi_0": equi.psi_0}
-        model = HighBetaMLP(**params)
-    else:
-        equi = GradShafranovEquilibrium(**params)
-        params = {}
+            model_kws = {"a": equi.a, "psi_0": equi.psi_0}
+        model = HighBetaMLP(**model_kws)
+        return equi, model
+
+    if target == "grad-shafranov":
+        equi = GradShafranovEquilibrium(**_equi_kws)
         if not equi.normalized:
-            params = {
+            model_kws = {
                 "R0": equi.Ra,
                 "a": equi.Rb[1],
                 "b": equi.Zb[1],
                 "psi_0": equi.psi_0,
             }
-        model = GradShafranovMLP(**params)
+        model = GradShafranovMLP(**model_kws)
+        return equi, model
 
+    raise RuntimeError("Equilibrium " + target + " is not supported")
+
+
+def train(
+    seed: int,
+    nepochs: int,
+    nsteps: int,
+    log_every_n_steps: int,
+    update_axis_every_n_epochs: int,
+    learning_rate: float,
+    equilibrium: Dict[str, Any],
+):
+    """
+    Main train function.
+
+    TODO: add docstring for train.
+    """
+
+    #  Set seed
+    torch.manual_seed(seed)
+
+    #  Get equilibrium and model
+    equi, model = get_equilibrium_and_model(seed=seed, **equilibrium)
     model.train()
 
-    learning_rate = 1e-1
+    #  shorthand
+    target = equilibrium["_target_"]
+
     optimizer = torch.optim.LBFGS(
         model.parameters(),
         lr=learning_rate,
@@ -49,13 +79,6 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
         max_iter=20,
         line_search_fn="strong_wolfe",
     )
-
-    #  Number of optimizer steps per epoch (i.e., number of batches)
-    nsteps = 1
-    log_every_n_steps = 10
-
-    #  Frequency for axis guess update
-    update_axis_every_n_epochs = 20
 
     for e in range(nepochs):
         for s, (x_domain, x_boundary, x_axis) in zip(range(nsteps), equi):
@@ -96,7 +119,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
                 print(string)
 
             #  Update running axis guess
-            if equilibrium == "grad-shafranov":
+            if target == "grad-shafranov":
                 if e % update_axis_every_n_epochs == update_axis_every_n_epochs - 1:
                     if equi.psi_0 > 0:
                         psi = "min"
@@ -122,7 +145,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
     print(f"pde mae={pde_mae:.2e}")
 
     #  Compute the normalized averaged force
-    if equilibrium == "grad-shafranov":
+    if target == "grad-shafranov":
         eps = equi.eps(x, psi_hat)
         print(f"eps={eps:.2e}")
 
@@ -133,8 +156,8 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
     #  Get grid points
     grid = equi.grid(normalized=False)
 
-    has_analytical_solution = equilibrium == "high-beta" or (
-        equilibrium == "grad-shafranov" and equi.is_solovev
+    has_analytical_solution = target == "high-beta" or (
+        target == "grad-shafranov" and equi.is_solovev
     )
 
     #  Compute mae between model solution and analytical solution
@@ -149,13 +172,13 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
     if has_analytical_solution:
         #  Plot analytical solution
         equi.fluxplot(grid, psi, ax, linestyles="solid")
-    if equilibrium == "grad-shafranov" and equi.wout_path is not None:
+    if target == "grad-shafranov" and equi.wout_path is not None:
         #  Plot VMEC flux surfaces
         rz, psi = get_flux_surfaces_from_wout(equi.wout_path)
         equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
 
     #  Plot scatter plot
-    if equilibrium == "high-beta":
+    if target == "high-beta":
         fig, ax = plt.subplots(1, 1, tight_layout=True)
         _, _, _, im = ax.hist2d(psi_hat.tolist(), psi.tolist(), bins=50, cmin=1)
         ax.plot([psi.min(), psi.max()], [psi.min(), psi.max()], "r--", linewidth=2)
@@ -164,7 +187,7 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
         ax.set_ylabel(r"$\Psi$")
 
     #  Plot eps over entire domain
-    if equilibrium == "grad-shafranov":
+    if target == "grad-shafranov":
         fig, ax = plt.subplots(1, 1, tight_layout=True)
         equi.fluxplot(
             x,
@@ -179,5 +202,18 @@ def train(equilibrium: str, nepochs: int, normalized: bool, seed: int = 42):
 
 
 if __name__ == "__main__":
-    #  TODO: add argparse with default configuration
-    train(equilibrium="grad-shafranov", normalized=False, nepochs=200)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        nargs="?",
+        type=str,
+        default="configs/solovev.yaml",
+        help="Configuration file to use",
+    )
+    args = parser.parse_args()
+
+    with open(args.config, "r") as f:
+        config = yaml.safe_load(f)
+
+    train(**config)

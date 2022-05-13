@@ -311,37 +311,6 @@ class GradShafranovEquilibrium(Equilibrium):
         psi_0: float = 1,
         wout_path: Optional[str] = None,
         is_solovev: Optional[bool] = True,
-        #  TODO: put these definitions in *.yaml files
-        #  TODO: Solov'ev as from VMEC wout file
-        # p: Tuple[float] = (0.125 / mu0, -0.125 / mu0),
-        # fsq: Tuple[float] = (6.58, -0.142),
-        # Rb: Tuple[float] = (3.999, 1.026, -0.068),
-        # Zb: Tuple[float] = (0, 1.58, 0.01),
-        # Ra: float = 3.999,
-        # Za: float = 0.0,
-        # psi_0: float = -1,
-        #  TODO: DSHAPE equilibrium, to be fixed!
-        # p: Tuple[float] = (
-        #     1598.34455725,
-        #     -2064.73509916,
-        #     -309.20392583,
-        #     1871.28768454,
-        #     -2400.0528889,
-        #     1301.74040632,
-        # ),
-        # fsq: Tuple[float] = (
-        #     0.5840779,
-        #     -0.01771422,
-        #     0.02795285,
-        #     -0.04720095,
-        #     0.06766905,
-        #     -0.03307103,
-        # ),
-        # Rb: Tuple[float] = (3.51, 1.0, 0.106),
-        # Zb: Tuple[float] = (0, 1.47, -0.16),
-        # Ra: float = 3.71270844,
-        # Za: float = 0.0,
-        # psi_0: float = -0.665,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
