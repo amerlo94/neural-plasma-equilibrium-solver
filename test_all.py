@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from models import GradShafranovMLP
-from physics import HighBetaEquilibrium
+from physics import HighBetaEquilibrium, GradShafranovEquilibrium
 from utils import grad, get_profile_from_wout, ift
 
 #########
@@ -162,3 +162,23 @@ def test_model_find_x_of_psi(psi, tolerance):
     x = model.find_x_of_psi(psi=psi, initial_guess=initial_guess, tolerance=tolerance)
     psi_hat = model.forward(x)
     assert abs(psi - psi_hat) < tolerance
+
+
+@pytest.mark.parametrize("noise", (0, 1e-3, 1e-2, 1e-1))
+@pytest.mark.parametrize("reduction", ("mean", None))
+@pytest.mark.parametrize("fsq0", (1, 4, 7, 11))
+def test_grad_shafranov_eps(noise, reduction, fsq0):
+    #  Construct a Solovev like F**2 profile
+    fsq = (fsq0, -4 * fsq0 / 10)
+    equi = GradShafranovEquilibrium(fsq=fsq)
+    x = equi.grid()
+    x.requires_grad_()
+    psi = equi.psi(x)
+    if noise == 0:
+        eps = equi.eps(x, psi=psi, reduction=reduction).max().item()
+        assert eps < 1e-6
+    else:
+        #  Apply Gaussian noise to solution
+        psi *= 1 + torch.randn(psi.shape) * noise
+        eps = equi.eps(x, psi=psi, reduction=reduction).max().item()
+        assert eps > noise
