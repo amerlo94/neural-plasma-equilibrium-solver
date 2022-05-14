@@ -94,8 +94,8 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
                         model(x_domain),
                         x_boundary,
                         model(x_boundary),
-                        x_axis,
-                        model(x_axis),
+                        # x_axis,
+                        # model(x_axis),
                     )
                 elif (equilibrium == "high-beta"):
                     loss = equi.closure(
@@ -120,8 +120,8 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
                         model(x_domain),
                         x_boundary,
                         model(x_boundary),
-                        x_axis,
-                        model(x_axis),
+                        # x_axis,
+                        # model(x_axis),
                         return_dict=True
                     )
                 elif equilibrium == "high-beta":
@@ -235,4 +235,4 @@ if __name__ == "__main__":
     #  TODO: add argparse with default configuration
     # train(equilibrium="high-beta", normalized=True, nepochs=200)
     # train(equilibrium="grad-shafranov", normalized=True, nepochs=100)
-    train(equilibrium="inverse-grad-shafranov", nepochs=150)
+    train(equilibrium="inverse-grad-shafranov", nepochs=50)

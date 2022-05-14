@@ -778,7 +778,7 @@ class InverseGSEquilibrium(Equilibrium):
             # domain
             ns = int(math.sqrt(self.ndomain))
             theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
-            rho = torch.linspace(0, 1, ns+2)[1:-1] # ** 2
+            rho = torch.sqrt(torch.linspace(0, 1, ns+2)[1:-1])
             # r = torch.rand(ns, generator=generator) ** 2
             domain = torch.cartesian_prod(rho, theta)
 
@@ -816,7 +816,7 @@ class InverseGSEquilibrium(Equilibrium):
         iota = 0
         for i, coef in enumerate(self.iota):
             iota += coef * rho**(i*2)
-        return iota * 2 * torch.pi
+        return iota  #* 2 * torch.pi
 
     def _lam(self, theta):
         # \lambda = f(\rho, \theta, \zeta)
@@ -863,12 +863,48 @@ class InverseGSEquilibrium(Equilibrium):
         # dpsi_drho = torch.tensor(self.psi_0, requires_grad=True, dtype=torch.float)
         flux_term = (self.psi_0 * R**2)/jacobian
         # lambda_term = 1 + grad(self._lam(theta), theta, create_graph=True)
+
+        # flux_term = (self.psi_0 * x[:, 0] ** 2) / jacobian
+        # lambda_term = grad(x[:, 2], rtheta, create_graph=True)[:, 1]
+        # F_of_rho = flux_term + flux_term * lambda_term
+
         return flux_term #* lambda_term
 
     def _mae_pde_loss(self, x: Tensor, cartesians: Tensor) -> Tensor:
         return torch.zeros(1)
 
     def F_covariant_rho(self, x, rtheta):
+        f_iota = self.iota_fn(rtheta[:, 0])
+        f_p = self.p_fn(rtheta[:, 0])
+        dR_drtheta = grad(x[:, 0], rtheta, create_graph=True)
+        dZ_drtheta = grad(x[:, 1], rtheta, create_graph=True)
+        dR_drho = dR_drtheta[:, 0]
+        dR_dtheta = dR_drtheta[:, 1]
+        dZ_drho = dZ_drtheta[:, 0]
+        dZ_dtheta = dZ_drtheta[:, 1]
+        g_theta2 = dR_dtheta * dR_dtheta + dZ_dtheta * dZ_dtheta
+        g_rhotheta = dR_drho * dR_dtheta + dZ_drho * dZ_dtheta
+        jacobian = self._jacobian(x[:, 0], dR_drho=dR_drho, dR_dtheta=dR_dtheta,
+                                  dZ_drho=dZ_drho, dZ_dtheta=dZ_dtheta)
+        dpsi_drho = self.psi_0 * 2 * rtheta[:, 0]
+        dchi_drho = f_iota * dpsi_drho
+        B_contravariant_zeta = dpsi_drho / (torch.pi * 2 * jacobian)
+        dLambda_dtheta = grad(x[:, 2], rtheta, create_graph=True)[:, 1]
+        B_contravariant_zeta = B_contravariant_zeta + B_contravariant_zeta * dLambda_dtheta
+        B_contravariant_theta = dchi_drho / (torch.pi * 2 * jacobian)
+        force_grad = B_contravariant_zeta * x[:, 0]
+        force_grad = grad(force_grad, rtheta, create_graph=True)[:, 0]
+        bracket_term1 = B_contravariant_theta * g_theta2
+        bracket_term1 = grad(bracket_term1, rtheta, create_graph=True)[:, 0]
+        bracket_term2 = B_contravariant_theta * g_rhotheta
+        bracket_term2 = grad(bracket_term2, rtheta, create_graph=True)[:, 1]
+        dp_drho = grad(f_p, rtheta, create_graph=True)[:, 0]
+        F_cov_rho = - B_contravariant_zeta * force_grad - \
+                  B_contravariant_theta * (bracket_term1 - bracket_term2) - dp_drho
+        F_cov_rho = F_cov_rho * mu0
+        return torch.pow(F_cov_rho, 2).sum()
+
+    def F_covariant_rho_vmec(self, x, rtheta):
         # rho = rtheta[:, 0]
         # rtheta = torch.hstack([rtheta[:,0].unsqueeze(1),
         #                        torch.atan2(rtheta[:, 1], rtheta[:, 2]).unsqueeze(1)])
@@ -886,7 +922,12 @@ class InverseGSEquilibrium(Equilibrium):
                                   dZ_drho=dZ_drho, dZ_dtheta=dZ_dtheta)
 
         dchi_drho = self.psi_0 * f_iota # * 2 * rtheta[:, 0]
+
         F_of_rho = self._F_of_rho(x[:, 0], jacobian)
+        # flux_term = (self.psi_0 * x[:, 0] ** 2) / jacobian
+        # lambda_term = grad(x[:, 2], rtheta, create_graph=True)[:, 1]
+        # F_of_rho = flux_term + flux_term * lambda_term
+
         dFrho_drho = grad(F_of_rho, rtheta, create_graph=True)[:, 0]
         dp_drho = grad(f_p, rtheta, create_graph=True)[:, 0]
 
@@ -911,7 +952,7 @@ class InverseGSEquilibrium(Equilibrium):
 
     def _boundary_closure(self, x: Tensor, cartesians: Tensor) -> Tensor:
         # theta = torch.atan2(x[:, 1], x[:, 2])
-        theta = x[:, 1]
+        theta = x[:, 1] + cartesians[:, 2]
         Rb = torch.as_tensor([self.Rb_fn(t) for t in theta])
         Zb = torch.as_tensor([self.Zb_fn(t) for t in theta])
         return (torch.pow(Rb - cartesians[:, 0], 2) + torch.pow((Zb - cartesians[:, 1]), 2)).sum()
