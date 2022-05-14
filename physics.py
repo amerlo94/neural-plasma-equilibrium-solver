@@ -139,7 +139,7 @@ class HighBetaEquilibrium(Equilibrium):
             rho = rho_b * torch.ones(self.nboundary)
             theta = (2 * torch.rand(self.nboundary, generator=generator) - 1) * math.pi
             boundary = torch.stack([rho, theta], dim=-1)
-            yield domain, boundary
+            yield domain, boundary, None
 
     def psi(self, x: Tensor) -> Tensor:
         rho = x[:, 0]
@@ -261,6 +261,7 @@ class HighBetaEquilibrium(Equilibrium):
 
     def fluxplot(self, x, psi, ax, *args, **kwargs):
 
+        x = x.detach()
         xrho = x[:, 0]
         ytheta = x[:, 1]
 
@@ -273,7 +274,7 @@ class HighBetaEquilibrium(Equilibrium):
         yy = xrho * torch.sin(ytheta)
 
         #  Detach and reshape tensors
-        psi = psi.view(xx.shape)
+        psi = psi.detach().view(xx.shape)
 
         ax.contour(xx, yy, psi, levels=10, **kwargs)
         ax.axis("equal")

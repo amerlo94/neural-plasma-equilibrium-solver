@@ -93,7 +93,7 @@ def train(
                     x_boundary,
                     model(x_boundary),
                     x_axis,
-                    model(x_axis),
+                    model(x_axis) if x_axis is not None else None,
                 )
                 loss.backward()
                 return loss
@@ -110,7 +110,7 @@ def train(
                     x_boundary,
                     model(x_boundary),
                     x_axis,
-                    model(x_axis),
+                    model(x_axis) if x_axis is not None else None,
                     return_dict=True,
                 )
                 string = f"[{e:5d}/{nepochs:5d}][{s:3d}/{nsteps:3d}]"
