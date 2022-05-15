@@ -39,8 +39,6 @@ def get_profile_from_wout(wout_path: str, profile: str):
     Get f(psi) = R**2 * Bsupv or p(psi) from a vmec equilibrium.
 
     Psi is the poloidal flux, which is called chi in VMEC.
-
-    TODO: check if f fitting is correct!
     """
     assert profile in ("p", "f")
     wout = get_wout(wout_path)
@@ -115,9 +113,9 @@ def ift(
 
 
 def get_solovev_boundary(
-    Ra: float = 4.0,
-    p0: float = 0.125,
-    psi_0: float = 1.0,
+    Ra: float,
+    p0: float,
+    psi_0: float,
     mpol: int = 5,
     tolerance: float = 1e-4,
     tolerance_change: float = 1e-9,
@@ -125,12 +123,12 @@ def get_solovev_boundary(
     """
     Get Fourier coefficients which describe a given Solov'ev boundary.
 
-    Example:
+    Examples:
 
-    >>> from utils import get_solovev_boundary
-    >>> Rb = get_solovev_boundary(mpol=5)
-    >>> len(Rb)
-    5
+        >>> from utils import get_solovev_boundary
+        >>> Rb = get_solovev_boundary(Ra=4.0, p0=0.125, psi_0=1.0)
+        >>> len(Rb)
+        5
     """
 
     #  Build theta grid

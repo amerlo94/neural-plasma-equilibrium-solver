@@ -3,8 +3,8 @@ equilibrium:
   _target_: high-beta
 
 seed: 42
-nepochs: 200
-nsteps: 1
+max_epochs: 200
+nbatches: 1
 log_every_n_steps: 10
 update_axis_every_n_epochs: 20
 learning_rate: 0.1

@@ -1,4 +1,4 @@
-"""Train script."""
+"""Main train script."""
 
 import argparse
 import math
@@ -48,21 +48,34 @@ def get_equilibrium_and_model(**equi_kws):
 
 def train(
     seed: int,
-    nepochs: int,
-    nsteps: int,
+    max_epochs: int,
+    nbatches: int,
     log_every_n_steps: int,
     update_axis_every_n_epochs: int,
     learning_rate: float,
     equilibrium: Dict[str, Any],
 ):
     """
-    Main train function.
+    Train model to solve the given equilibrium and plot solution.
 
-    TODO: add docstring for train.
+    Args:
+        seed (int): random seed.
+        max_epochs (int): number of epochs to train.
+        nbatches (int): number of batches.
+        log_every_n_steps (int): frequency for training log.
+        update_axis_every_n_epochs: frequency for updating axis guess.
+            Valid only for GradShafranov equilibria.
+        learning_rate (float): model learning rate.
+        equilibrium (dict): dict of keyword arguments for equilibrium and model
+            definition. Dict must have a `_target_` key to define the equilibrium.
     """
 
     #  Set seed
     torch.manual_seed(seed)
+
+    ###############
+    # Instantiate #
+    ###############
 
     #  Get equilibrium and model
     equi, model = get_equilibrium_and_model(seed=seed, **equilibrium)
@@ -80,8 +93,12 @@ def train(
         line_search_fn="strong_wolfe",
     )
 
-    for e in range(nepochs):
-        for s, (x_domain, x_boundary, x_axis) in zip(range(nsteps), equi):
+    #########
+    # Train #
+    #########
+
+    for epoch in range(max_epochs):
+        for batch_idx, (x_domain, x_boundary, x_axis) in zip(range(nbatches), equi):
 
             x_domain.requires_grad_()
 
@@ -100,8 +117,10 @@ def train(
 
             optimizer.step(closure)
 
-            #  Print the current loss (not aggregated across batches)
-            global_step = e * nsteps + s
+            #  Print the current loss:
+            #  this is the loss at the given step and not the
+            #  loss aggregated over all batches.
+            global_step = epoch * nbatches + batch_idx
             if global_step % log_every_n_steps == log_every_n_steps - 1:
                 optimizer.zero_grad()
                 loss = equi.closure(
@@ -113,14 +132,14 @@ def train(
                     model(x_axis) if x_axis is not None else None,
                     return_dict=True,
                 )
-                string = f"[{e:5d}/{nepochs:5d}][{s:3d}/{nsteps:3d}]"
+                string = f"[{epoch:5d}/{max_epochs:5d}][{batch_idx:3d}/{nbatches:3d}]"
                 for k, v in loss.items():
                     string += f", {k}={v.item():.2e}"
                 print(string)
 
             #  Update running axis guess
             if target == "grad-shafranov":
-                if e % update_axis_every_n_epochs == update_axis_every_n_epochs - 1:
+                if epoch % update_axis_every_n_epochs == update_axis_every_n_epochs - 1:
                     if equi.psi_0 > 0:
                         psi = "min"
                     else:
@@ -129,7 +148,9 @@ def train(
                     if equi.normalized:
                         axis_guess *= equi.Rb[0]
                     equi.update_axis(axis_guess[0])
-                    string = f"[{e:5d}/{nepochs:5d}][{s:3d}/{nsteps:3d}]"
+                    string = (
+                        f"[{epoch:5d}/{max_epochs:5d}][{batch_idx:3d}/{nbatches:3d}]"
+                    )
                     string += f", update axis guess to [{axis_guess[0][0]:.2f}, {axis_guess[0][1]:.2f}]"
                     print(string)
 

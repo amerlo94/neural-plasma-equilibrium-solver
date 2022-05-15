@@ -67,7 +67,7 @@ def test_high_beta_mae_pde_loss(normalized: bool, ns: int):
     else:
         psi = equi.psi(x)
     mae = equi.mae_pde_loss(x, psi).item()
-    assert mae > 0 and mae < 1e-5
+    assert mae < 1e-5
 
 
 @pytest.mark.parametrize("normalized", (True, False))
@@ -76,7 +76,7 @@ def test_high_beta_mae_pde_loss(normalized: bool, ns: int):
 def test_high_beta_points_different_than_grid(normalized: bool, nbatches: int, ns: int):
     equi = HighBetaEquilibrium(normalized=normalized, ndomain=ns**2)
     grid = equi.grid(ns=ns)
-    for _, (x, _) in zip(range(nbatches), equi):
+    for _, (x, _, _) in zip(range(nbatches), equi):
         #  The first point is on the axis in both cases
         assert (x[1:] != grid[1:]).all()
 
@@ -87,15 +87,15 @@ def test_high_beta_consistent_points(normalized: bool, nbatches: int):
     equi = HighBetaEquilibrium(normalized=normalized)
     domain_points = []
     boundary_points = []
-    for _, (x_domain, x_boundary) in zip(range(nbatches), equi):
+    for _, (x_domain, x_boundary, _) in zip(range(nbatches), equi):
         domain_points.append(x_domain)
         boundary_points.append(x_boundary)
-    for i, (x_domain, x_boundary) in zip(range(nbatches), equi):
+    for i, (x_domain, x_boundary, _) in zip(range(nbatches), equi):
         assert (domain_points[i] == x_domain).all()
         assert (boundary_points[i] == x_boundary).all()
     #  Points should be different if we change the equilibrium seed
     equi.seed = equi.seed - 1
-    for i, (x_domain, x_boundary) in zip(range(nbatches), equi):
+    for i, (x_domain, x_boundary, _) in zip(range(nbatches), equi):
         assert (domain_points[i][1:] != x_domain[1:]).all()
         #  Check only theta value here
         assert (boundary_points[i][:, 1] != x_boundary[:, 1]).all()

@@ -193,7 +193,8 @@ class HighBetaEquilibrium(Equilibrium):
         theta = x[:, 1]
         residual = rho * dpsi_drho + rho**2 * dpsi2_drho2 + dpsi2_dtheta2
         denom = rho**2 * (self.A + self.C * rho * torch.cos(theta))
-        #  TODO: avoid to compute error at the boundary to avoid division by 0
+        #  Do not compute error at the boundary to avoid division by 0
+        #  TODO: can we relax this?
         return mae(residual[rho != self.a], denom[rho != self.a])
 
     def _pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
@@ -228,7 +229,8 @@ class HighBetaEquilibrium(Equilibrium):
             * rho**2
             * (self.A + self.a * self.C * rho * torch.cos(theta))
         )
-        #  TODO: avoid to compute error at the boundary to avoid division by 0
+        #  Do not compute error at the boundary to avoid division by 0
+        #  TODO: can we relax this?
         return mae(residual[rho != 1], denom[rho != 1])
 
     def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
