@@ -1,6 +1,6 @@
 # Neural Netowrk Differential Equation Plasma Equilibrium Solver
 
-PyTorch implementation of [Neural Netowrk Differential Equation Plasma Equilibrium Solver](doi.org/10.1103/PhysRevLett.75.3594).
+PyTorch implementation of [Neural Netowrk Differential Equation Plasma Equilibrium Solver](https://doi.org/10.1103/PhysRevLett.75.3594).
 
 ## Equilibria
 
