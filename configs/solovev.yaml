@@ -1,6 +1,7 @@
 #  Use default values from class
 equilibrium:
   _target_: grad-shafranov
+  normalized: true
 
 seed: 42
 nepochs: 200

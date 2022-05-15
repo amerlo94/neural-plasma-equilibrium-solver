@@ -35,7 +35,7 @@ def get_equilibrium_and_model(**equi_kws):
         equi = GradShafranovEquilibrium(**_equi_kws)
         if not equi.normalized:
             model_kws = {
-                "R0": equi.Ra,
+                "R0": equi.Rb[0],
                 "a": equi.Rb[1],
                 "b": equi.Zb[1],
                 "psi_0": equi.psi_0,
@@ -126,6 +126,8 @@ def train(
                     else:
                         psi = "max"
                     axis_guess = model.find_x_of_psi(psi, x_axis)
+                    if equi.normalized:
+                        axis_guess *= equi.Rb[0]
                     equi.update_axis(axis_guess[0])
                     string = f"[{e:5d}/{nepochs:5d}][{s:3d}/{nsteps:3d}]"
                     string += f", update axis guess to [{axis_guess[0][0]:.2f}, {axis_guess[0][1]:.2f}]"

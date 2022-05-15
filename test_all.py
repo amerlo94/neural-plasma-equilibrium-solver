@@ -167,13 +167,17 @@ def test_model_find_x_of_psi(psi, tolerance):
 @pytest.mark.parametrize("noise", (0, 1e-3, 1e-2, 1e-1))
 @pytest.mark.parametrize("reduction", ("mean", None))
 @pytest.mark.parametrize("fsq0", (1, 4, 7, 11))
-def test_grad_shafranov_eps(noise, reduction, fsq0):
+@pytest.mark.parametrize("normalized", (False, True))
+def test_grad_shafranov_eps(noise, reduction, fsq0, normalized):
     #  Construct a Solovev like F**2 profile
     fsq = (fsq0, -4 * fsq0 / 10)
-    equi = GradShafranovEquilibrium(fsq=fsq)
+    equi = GradShafranovEquilibrium(fsq=fsq, normalized=normalized)
     x = equi.grid()
     x.requires_grad_()
-    psi = equi.psi(x)
+    not_normalized_grid = x
+    if normalized:
+        not_normalized_grid = x * equi.Rb[0]
+    psi = equi.psi(not_normalized_grid)
     if noise == 0:
         eps = equi.eps(x, psi=psi, reduction=reduction).max().item()
         assert eps < 1e-6

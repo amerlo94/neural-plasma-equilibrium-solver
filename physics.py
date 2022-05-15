@@ -328,6 +328,7 @@ class GradShafranovEquilibrium(Equilibrium):
         #  Initial guess for the axis
         self.Ra = Ra
         self.Za = Za
+
         #  Running axis location
         self._Ra = Ra
         self._Za = Za
@@ -335,18 +336,11 @@ class GradShafranovEquilibrium(Equilibrium):
         #  Boundary condition on psi (i.e., psi_edge), the poloidal flux (chi in VMEC)
         self.psi_0 = psi_0
 
-        #  Normalized Grad Shafranov equilibrium is not supported
-        assert self.normalized == False
-
         #  VMEC wout file
         self.wout_path = wout_path
 
         #  Is a Solov'ev equilibrium?
         self.is_solovev = is_solovev
-
-        self._axis_closure_ = None
-        self._boundary_closure_ = None
-        self._pde_closure_ = None
 
     @classmethod
     def from_vmec(cls, wout_path, **kwargs):
@@ -396,17 +390,15 @@ class GradShafranovEquilibrium(Equilibrium):
         return len(self.Rb)
 
     def p_fn(self, psi):
-        psi_ = psi / self.psi_0
         p = 0
         for i, coef in enumerate(self.p):
-            p += coef * psi_**i
+            p += coef * psi**i
         return p
 
     def fsq_fn(self, psi):
-        psi_ = psi / self.psi_0
         fsq = 0
         for i, coef in enumerate(self.fsq):
-            fsq += coef * psi_**i
+            fsq += coef * psi**i
         return fsq
 
     def __iter__(self):
@@ -435,10 +427,12 @@ class GradShafranovEquilibrium(Equilibrium):
             Z = torch.as_tensor([self.Zb_fn(t) for t in theta])
             boundary = torch.stack([R, Z], dim=-1)
             #  Axis point
-            axis = torch.Tensor([self._Ra, self._Za]).view(1, 2)
             #  TODO: is it ok to have the same number of points as boundary, but effective always the same?
             #        the same can be achieved with a factor in front of the loss
+            axis = torch.Tensor([self._Ra, self._Za]).view(1, 2)
             # axis = axis.expand(self.nboundary, 2)
+            if self.normalized:
+                yield domain / self.Rb[0], boundary / self.Rb[0], axis / self.Rb[0]
             yield domain, boundary, axis
 
     def Rb_fn(self, theta):
@@ -460,19 +454,34 @@ class GradShafranovEquilibrium(Equilibrium):
         dpsi_dZ = dpsi_dx[:, 1]
         dpsi2_dR2 = grad(dpsi_dR, x, retain_graph=True)[:, 0]
         dpsi2_dZ2 = grad(dpsi_dZ, x, retain_graph=True)[:, 1]
-        p = self.p_fn(psi)
+        #  Compute normalized poloidal flux
+        psi_ = psi if self.normalized else psi / self.psi_0
+        p = self.p_fn(psi_)
         dp_dpsi = grad(p, psi, retain_graph=True)
-        fsq = self.fsq_fn(psi)
+        fsq = self.fsq_fn(psi_)
         dfsq_dpsi = grad(fsq, psi, retain_graph=True)
         R = x[:, 0]
         #  Force components
-        gs = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
-        gs += mu0 * R**2 * dp_dpsi + 0.5 * dfsq_dpsi
+        nabla_star = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
+        if self.normalized:
+            nabla_star *= self.psi_0 / self.Rb[0] ** 2
+        term = mu0 * R**2 * dp_dpsi
+        if self.normalized:
+            term *= self.Rb[0] ** 2 / self.psi_0
+        gs = nabla_star + term
+        term = 0.5 * dfsq_dpsi
+        if self.normalized:
+            term *= 1 / self.psi_0
+        gs += term
         fR = -1 / (mu0 * R**2) * dpsi_dR * gs
         fZ = -1 / (mu0 * R**2) * dpsi_dZ * gs
         fsq = fR**2 + fZ**2
+        if self.normalized:
+            fsq *= self.psi_0**2 / self.Rb[0] ** 6
         #  grad-p
         gradpsq = dp_dpsi**2 * (dpsi_dR**2 + dpsi_dZ**2)
+        if self.normalized:
+            gradpsq *= 1 / self.Rb[0] ** 2
         if reduction is None:
             #  Compute the local normalized force balance
             return torch.sqrt(fsq / gradpsq)
@@ -488,13 +497,29 @@ class GradShafranovEquilibrium(Equilibrium):
         dpsi_dZ = dpsi_dx[:, 1]
         dpsi2_dR2 = grad(dpsi_dR, x, create_graph=True)[:, 0]
         dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
+        p = self.p_fn(psi / self.psi_0)
+        dp_dpsi = grad(p, psi, create_graph=True)
+        fsq = self.fsq_fn(psi / self.psi_0)
+        dfsq_dpsi = grad(fsq, psi, create_graph=True)
+        R = x[:, 0]
+        residual = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
+        residual += mu0 * R**2 * dp_dpsi + 0.5 * dfsq_dpsi
+        return (residual**2).sum()
+
+    def _pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_dR = dpsi_dx[:, 0]
+        dpsi_dZ = dpsi_dx[:, 1]
+        dpsi2_dR2 = grad(dpsi_dR, x, create_graph=True)[:, 0]
+        dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
         p = self.p_fn(psi)
         dp_dpsi = grad(p, psi, create_graph=True)
         fsq = self.fsq_fn(psi)
         dfsq_dpsi = grad(fsq, psi, create_graph=True)
         R = x[:, 0]
         residual = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
-        residual += mu0 * R**2 * dp_dpsi + 0.5 * dfsq_dpsi
+        residual += mu0 * self.Rb[0] ** 4 / self.psi_0**2 * R**2 * dp_dpsi
+        residual += 0.5 * self.Rb[0] ** 2 / self.psi_0**2 * dfsq_dpsi
         return (residual**2).sum()
 
     def _mae_pde_loss(self, x: Tensor, psi: Tensor) -> Tensor:
@@ -503,19 +528,41 @@ class GradShafranovEquilibrium(Equilibrium):
         dpsi_dZ = dpsi_dx[:, 1]
         dpsi2_dR2 = grad(dpsi_dR, x, retain_graph=True)[:, 0]
         dpsi2_dZ2 = grad(dpsi_dZ, x, retain_graph=True)[:, 1]
-        p = self.p_fn(psi)
+        p = self.p_fn(psi / self.psi_0)
         dp_dpsi = grad(p, psi, retain_graph=True)
-        fsq = self.fsq_fn(psi)
+        fsq = self.fsq_fn(psi / self.psi_0)
         dfsq_dpsi = grad(fsq, psi, retain_graph=True)
         R = x[:, 0]
         nabla_star = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
         denom = mu0 * R**2 * dp_dpsi + 0.5 * dfsq_dpsi
         return mae(nabla_star, -denom)
 
+    def _mae_pde_loss_(self, x: Tensor, psi: Tensor) -> Tensor:
+        dpsi_dx = grad(psi, x, create_graph=True)
+        dpsi_dR = dpsi_dx[:, 0]
+        dpsi_dZ = dpsi_dx[:, 1]
+        dpsi2_dR2 = grad(dpsi_dR, x, create_graph=True)[:, 0]
+        dpsi2_dZ2 = grad(dpsi_dZ, x, create_graph=True)[:, 1]
+        p = self.p_fn(psi)
+        dp_dpsi = grad(p, psi, create_graph=True)
+        fsq = self.fsq_fn(psi)
+        dfsq_dpsi = grad(fsq, psi, create_graph=True)
+        R = x[:, 0]
+        nabla_star = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
+        denom = mu0 * self.Rb[0] ** 4 / self.psi_0**2 * R**2 * dp_dpsi
+        denom += 0.5 * self.Rb[0] ** 2 / self.psi_0**2 * dfsq_dpsi
+        return mae(nabla_star, -denom)
+
     def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         return ((psi - self.psi_0) ** 2).sum()
 
+    def _boundary_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
+        return ((psi - 1) ** 2).sum()
+
     def _axis_closure(self, x: Tensor, psi: Tensor) -> Tensor:
+        return (psi**2).sum()
+
+    def _axis_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
         return (psi**2).sum()
 
     def psi(self, x: Tensor) -> Tensor:
@@ -539,6 +586,9 @@ class GradShafranovEquilibrium(Equilibrium):
         if ns is None:
             ns = int(math.sqrt(self.ndomain))
 
+        if normalized is None:
+            normalized = self.normalized
+
         Rb = ift(self.Rb, basis="cos", ntheta=ns)
         Zb = ift(self.Zb, basis="sin", ntheta=ns)
 
@@ -552,7 +602,12 @@ class GradShafranovEquilibrium(Equilibrium):
             Z = (Zb - self._Za) * i * hs + self._Za
             grid.append(torch.stack([R, Z], dim=-1))
 
-        return torch.cat(grid)
+        grid = torch.cat(grid)
+
+        if normalized:
+            grid /= self.Rb[0]
+
+        return grid
 
     def fluxplot(self, x, psi, ax, filled: Optional[bool] = False, **kwargs):
 
