@@ -427,10 +427,7 @@ class GradShafranovEquilibrium(Equilibrium):
             Z = torch.as_tensor([self.Zb_fn(t) for t in theta])
             boundary = torch.stack([R, Z], dim=-1)
             #  Axis point
-            #  TODO: is it ok to have the same number of points as boundary, but effective always the same?
-            #        the same can be achieved with a factor in front of the loss
             axis = torch.Tensor([self._Ra, self._Za]).view(1, 2)
-            # axis = axis.expand(self.nboundary, 2)
             if self.normalized:
                 yield domain / self.Rb[0], boundary / self.Rb[0], axis / self.Rb[0]
             yield domain, boundary, axis
