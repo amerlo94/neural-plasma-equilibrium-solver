@@ -7,17 +7,16 @@ from torch.utils.data import IterableDataset
 
 from utils import ift, grad, mae
 
-
 mu0 = 4 * math.pi * 1e-7
 
 
 class Equilibrium(IterableDataset):
     def __init__(
-        self,
-        ndomain: int = 2500,
-        nboundary: int = 50,
-        normalized: bool = False,
-        seed: int = 42,
+            self,
+            ndomain: int = 2500,
+            nboundary: int = 50,
+            normalized: bool = False,
+            seed: int = 42,
     ) -> None:
 
         super().__init__()
@@ -49,14 +48,14 @@ class Equilibrium(IterableDataset):
             self.mae_pde_loss = self._mae_pde_loss
 
     def closure(
-        self,
-        x_domain: Tensor,
-        psi_domain: Tensor,
-        x_boundary: Tensor,
-        psi_boundary: Tensor,
-        x_axis: Optional[Tensor] = None,
-        psi_axis: Optional[Tensor] = None,
-        return_dict: Optional[bool] = False,
+            self,
+            x_domain: Tensor,
+            psi_domain: Tensor,
+            x_boundary: Tensor,
+            psi_boundary: Tensor,
+            x_axis: Optional[Tensor] = None,
+            psi_axis: Optional[Tensor] = None,
+            return_dict: Optional[bool] = False,
     ) -> Tensor:
         loss = {"pde": self.pde_closure(x_domain, psi_domain),
                 "boundary": self.boundary_closure(x_boundary, psi_boundary)}
@@ -107,7 +106,7 @@ class Equilibrium(IterableDataset):
 
 class HighBetaEquilibrium(Equilibrium):
     def __init__(
-        self, a: float = 0.1, A: float = 1, C: float = 10, R0: float = 0.6, **kwargs
+            self, a: float = 0.1, A: float = 1, C: float = 10, R0: float = 0.6, **kwargs
     ) -> None:
         super().__init__(**kwargs)
 
@@ -115,7 +114,7 @@ class HighBetaEquilibrium(Equilibrium):
         self.A = A
         self.C = C
         self.R0 = R0
-        self.psi_0 = -2 * A * a**2 / 8
+        self.psi_0 = -2 * A * a ** 2 / 8
 
     def __iter__(self):
 
@@ -144,20 +143,20 @@ class HighBetaEquilibrium(Equilibrium):
         rho = x[:, 0]
         theta = x[:, 1]
         return (
-            0.125
-            * (rho**2 - self.a**2)
-            * (2 * self.A + self.C * rho * torch.cos(theta))
+                0.125
+                * (rho ** 2 - self.a ** 2)
+                * (2 * self.A + self.C * rho * torch.cos(theta))
         )
 
     def psi_(self, x: Tensor) -> Tensor:
         rho = x[:, 0]
         theta = x[:, 1]
         return (
-            0.125
-            * self.a**2
-            * (rho**2 - 1)
-            * (2 * self.A + self.C * rho * self.a * torch.cos(theta))
-            / self.psi_0
+                0.125
+                * self.a ** 2
+                * (rho ** 2 - 1)
+                * (2 * self.A + self.C * rho * self.a * torch.cos(theta))
+                / self.psi_0
         )
 
     def _data_closure(self, x: Tensor, psi: Tensor) -> Tensor:
@@ -178,9 +177,9 @@ class HighBetaEquilibrium(Equilibrium):
         # residual = 1 / rho * dpsi_drho + dpsi2_drho2
         # residual += 1 / rho ** 2 * dpsi2_dtheta2
         # residual -= A + C * rho * torch.cos(theta)
-        residual = rho * dpsi_drho + rho**2 * dpsi2_drho2 + dpsi2_dtheta2
-        residual -= rho**2 * (self.A + self.C * rho * torch.cos(theta))
-        return (residual**2).sum()
+        residual = rho * dpsi_drho + rho ** 2 * dpsi2_drho2 + dpsi2_dtheta2
+        residual -= rho ** 2 * (self.A + self.C * rho * torch.cos(theta))
+        return (residual ** 2).sum()
 
     def _mae_pde_loss(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
@@ -190,8 +189,8 @@ class HighBetaEquilibrium(Equilibrium):
         dpsi2_dtheta2 = grad(dpsi_dtheta, x, create_graph=True)[:, 1]
         rho = x[:, 0]
         theta = x[:, 1]
-        residual = rho * dpsi_drho + rho**2 * dpsi2_drho2 + dpsi2_dtheta2
-        denom = rho**2 * (self.A + self.C * rho * torch.cos(theta))
+        residual = rho * dpsi_drho + rho ** 2 * dpsi2_drho2 + dpsi2_dtheta2
+        denom = rho ** 2 * (self.A + self.C * rho * torch.cos(theta))
         #  TODO: avoid to compute error at the boundary to avoid division by 0
         return mae(residual[rho != self.a], denom[rho != self.a])
 
@@ -203,14 +202,14 @@ class HighBetaEquilibrium(Equilibrium):
         dpsi2_dtheta2 = grad(dpsi_dtheta, x, create_graph=True)[:, 1]
         rho = x[:, 0]
         theta = x[:, 1]
-        residual = rho * dpsi_drho + rho**2 * dpsi2_drho2 + dpsi2_dtheta2
+        residual = rho * dpsi_drho + rho ** 2 * dpsi2_drho2 + dpsi2_dtheta2
         residual -= (
-            self.a**2
-            / self.psi_0
-            * rho**2
-            * (self.A + self.a * self.C * rho * torch.cos(theta))
+                self.a ** 2
+                / self.psi_0
+                * rho ** 2
+                * (self.A + self.a * self.C * rho * torch.cos(theta))
         )
-        return (residual**2).sum()
+        return (residual ** 2).sum()
 
     def _mae_pde_loss_(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
@@ -220,12 +219,12 @@ class HighBetaEquilibrium(Equilibrium):
         dpsi2_dtheta2 = grad(dpsi_dtheta, x, create_graph=True)[:, 1]
         rho = x[:, 0]
         theta = x[:, 1]
-        residual = rho * dpsi_drho + rho**2 * dpsi2_drho2 + dpsi2_dtheta2
+        residual = rho * dpsi_drho + rho ** 2 * dpsi2_drho2 + dpsi2_dtheta2
         denom = (
-            self.a**2
-            / self.psi_0
-            * rho**2
-            * (self.A + self.a * self.C * rho * torch.cos(theta))
+                self.a ** 2
+                / self.psi_0
+                * rho ** 2
+                * (self.A + self.a * self.C * rho * torch.cos(theta))
         )
         #  TODO: avoid to compute error at the boundary to avoid division by 0
         return mae(residual[rho != 1], denom[rho != 1])
@@ -294,52 +293,52 @@ class GradShafranovEquilibrium(Equilibrium):
     """
 
     def __init__(
-        self,
-        p: Tuple[float] = (0.125 / mu0, -0.125 / mu0),
-        fsq: Tuple[float] = (4, -4 * 4 / 10),
-        Rb: Tuple[float] = (
-            3.9334e00,
-            -1.0258e00,
-            -6.8083e-02,
-            -9.0720e-03,
-            -1.4531e-03,
-        ),
-        Zb: Tuple[float] = (0, math.sqrt(10) / 2, 0, 0, 0),
-        Ra: float = 3.9332,
-        Za: float = 0.0,
-        psi_0: float = 1,
-        #  TODO: put these definitions in *.yaml files
-        #  TODO: Solov'ev as from VMEC wout file
-        # p: Tuple[float] = (0.125 / mu0, -0.125 / mu0),
-        # fsq: Tuple[float] = (6.58, -0.142),
-        # Rb: Tuple[float] = (3.999, 1.026, -0.068),
-        # Zb: Tuple[float] = (0, 1.58, 0.01),
-        # Ra: float = 3.999,
-        # Za: float = 0.0,
-        # psi_0: float = -1,
-        #  TODO: DSHAPE equilibrium, to be fixed!
-        # p: Tuple[float] = (
-        #     1598.34455725,
-        #     -2064.73509916,
-        #     -309.20392583,
-        #     1871.28768454,
-        #     -2400.0528889,
-        #     1301.74040632,
-        # ),
-        # fsq: Tuple[float] = (
-        #     0.5840779,
-        #     -0.01771422,
-        #     0.02795285,
-        #     -0.04720095,
-        #     0.06766905,
-        #     -0.03307103,
-        # ),
-        # Rb: Tuple[float] = (3.51, 1.0, 0.106),
-        # Zb: Tuple[float] = (0, 1.47, -0.16),
-        # Ra: float = 3.71270844,
-        # Za: float = 0.0,
-        # psi_0: float = -0.665,
-        **kwargs,
+            self,
+            p: Tuple[float] = (0.125 / mu0, -0.125 / mu0),
+            fsq: Tuple[float] = (4, -4 * 4 / 10),
+            Rb: Tuple[float] = (
+                    3.9334e00,
+                    -1.0258e00,
+                    -6.8083e-02,
+                    -9.0720e-03,
+                    -1.4531e-03,
+            ),
+            Zb: Tuple[float] = (0, math.sqrt(10) / 2, 0, 0, 0),
+            Ra: float = 3.9332,
+            Za: float = 0.0,
+            psi_0: float = 1,
+            #  TODO: put these definitions in *.yaml files
+            #  TODO: Solov'ev as from VMEC wout file
+            # p: Tuple[float] = (0.125 / mu0, -0.125 / mu0),
+            # fsq: Tuple[float] = (6.58, -0.142),
+            # Rb: Tuple[float] = (3.999, 1.026, -0.068),
+            # Zb: Tuple[float] = (0, 1.58, 0.01),
+            # Ra: float = 3.999,
+            # Za: float = 0.0,
+            # psi_0: float = -1,
+            #  TODO: DSHAPE equilibrium, to be fixed!
+            # p: Tuple[float] = (
+            #     1598.34455725,
+            #     -2064.73509916,
+            #     -309.20392583,
+            #     1871.28768454,
+            #     -2400.0528889,
+            #     1301.74040632,
+            # ),
+            # fsq: Tuple[float] = (
+            #     0.5840779,
+            #     -0.01771422,
+            #     0.02795285,
+            #     -0.04720095,
+            #     0.06766905,
+            #     -0.03307103,
+            # ),
+            # Rb: Tuple[float] = (3.51, 1.0, 0.106),
+            # Zb: Tuple[float] = (0, 1.47, -0.16),
+            # Ra: float = 3.71270844,
+            # Za: float = 0.0,
+            # psi_0: float = -0.665,
+            **kwargs,
     ) -> None:
         super().__init__(**kwargs)
 
@@ -379,14 +378,14 @@ class GradShafranovEquilibrium(Equilibrium):
         psi_ = psi / self.psi_0
         p = 0
         for i, coef in enumerate(self.p):
-            p += coef * psi_**i
+            p += coef * psi_ ** i
         return p
 
     def fsq_fn(self, psi):
         psi_ = psi / self.psi_0
         fsq = 0
         for i, coef in enumerate(self.fsq):
-            fsq += coef * psi_**i
+            fsq += coef * psi_ ** i
         return fsq
 
     def get_ab(self):
@@ -480,12 +479,12 @@ class GradShafranovEquilibrium(Equilibrium):
         R = x[:, 0]
         #  Force components
         gs = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
-        gs += mu0 * R**2 * dp_dpsi + 0.5 * dfsq_dpsi
-        fR = -1 / (mu0 * R**2) * dpsi_dR * gs
-        fZ = -1 / (mu0 * R**2) * dpsi_dZ * gs
-        fsq = fR**2 + fZ**2
+        gs += mu0 * R ** 2 * dp_dpsi + 0.5 * dfsq_dpsi
+        fR = -1 / (mu0 * R ** 2) * dpsi_dR * gs
+        fZ = -1 / (mu0 * R ** 2) * dpsi_dZ * gs
+        fsq = fR ** 2 + fZ ** 2
         #  grad-p
-        gradpsq = dp_dpsi**2 * (dpsi_dR**2 + dpsi_dZ**2)
+        gradpsq = dp_dpsi ** 2 * (dpsi_dR ** 2 + dpsi_dZ ** 2)
         #  Compute the normalized averaged force balance
         #  The `x` domain is not enforced to be on a equally spaced grid,
         #  so the sum() here is not strictly an equivalent to an integral
@@ -504,11 +503,11 @@ class GradShafranovEquilibrium(Equilibrium):
         R = x[:, 0]
         gs_ = - dpsi_dR + R * dpsi2_dR2 + R * dpsi2_dZ2
         gs_ += R * (self.R0 ** 2 / self.psi_0 ** 2) * \
-            (mu0 * self.R0**2 * R**2 * dp_dpsi + 0.5 * dfsq_dpsi)
-        fR = - 1 / (mu0 * self.R0 ** 2 * R**2) * dpsi_dR * gs_
-        fZ = - 1 / (mu0 * self.R0 ** 2 * R**2) * dpsi_dZ * gs_
+               (mu0 * self.R0 ** 2 * R ** 2 * dp_dpsi + 0.5 * dfsq_dpsi)
+        fR = - 1 / (mu0 * self.R0 ** 2 * R ** 2) * dpsi_dR * gs_
+        fZ = - 1 / (mu0 * self.R0 ** 2 * R ** 2) * dpsi_dZ * gs_
         fsq = fR ** 2 + fZ ** 2
-        gradpsq = dp_dpsi**2 * (dpsi_dR**2 + dpsi_dZ**2)
+        gradpsq = dp_dpsi ** 2 * (dpsi_dR ** 2 + dpsi_dZ ** 2)
         return torch.sqrt(fsq.sum() / gradpsq.sum())
 
     def _pde_closure(self, x: Tensor, psi: Tensor) -> Tensor:
@@ -523,8 +522,8 @@ class GradShafranovEquilibrium(Equilibrium):
         dfsq_dpsi = grad(fsq, psi, create_graph=True)
         R = x[:, 0]
         residual = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
-        residual += mu0 * R**2 * dp_dpsi + 0.5 * dfsq_dpsi
-        return (residual**2).sum()
+        residual += mu0 * R ** 2 * dp_dpsi + 0.5 * dfsq_dpsi
+        return (residual ** 2).sum()
 
     def _mae_pde_loss(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
@@ -538,14 +537,14 @@ class GradShafranovEquilibrium(Equilibrium):
         dfsq_dpsi = grad(fsq, psi, retain_graph=True)
         R = x[:, 0]
         nabla_star = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
-        denom = mu0 * R**2 * dp_dpsi + 0.5 * dfsq_dpsi
+        denom = mu0 * R ** 2 * dp_dpsi + 0.5 * dfsq_dpsi
         return mae(nabla_star, -denom)
 
     def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
         return ((psi - self.psi_0) ** 2).sum()
 
     def _axis_closure(self, x: Tensor, psi: Tensor) -> Tensor:
-        return (psi**2).sum()
+        return (psi ** 2).sum()
 
     # def _pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
     #     # 2010 Cerfon, Freidberg a = (Rmax-Rmin)/2 ; b = (Zmax-Zmin)/2
@@ -576,8 +575,9 @@ class GradShafranovEquilibrium(Equilibrium):
         dfsq_dpsi = grad(f, psi, create_graph=True)
         rho = x[:, 0]
         residual = - dpsi_drho + rho * dpsi2_drho2 + rho * dpsi2_dZ2
-        residual += rho * (self.R0**2 / self.psi_0**2) * (mu0 * self.R0**2 * rho ** 2 * dp_dpsi +
-                                                     0.5 * dfsq_dpsi)
+        residual += rho * (self.R0 ** 2 / self.psi_0 ** 2) * (
+                mu0 * self.R0 ** 2 * rho ** 2 * dp_dpsi +
+                0.5 * dfsq_dpsi)
         return (residual ** 2).sum()
 
     def _mae_pde_loss_(self, x: Tensor, psi: Tensor) -> Tensor:
@@ -594,14 +594,14 @@ class GradShafranovEquilibrium(Equilibrium):
         nabla_star = dpsi_drho + rho * (dpsi2_drho2 + dpsi2_dZ2)
         denom = rho * (self.R0 ** 2 / self.psi_0 ** 2) * \
                 (mu0 * self.R0 ** 2 * rho ** 2 * dp_dpsi +
-                                  0.5 * dfsq_dpsi)
+                 0.5 * dfsq_dpsi)
         return mae(nabla_star, -denom)
 
     def _boundary_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
         return ((psi - 1.0) ** 2).sum()
 
     def _axis_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
-        return (psi**2).sum()
+        return (psi ** 2).sum()
 
     def psi(self, x: Tensor) -> Tensor:
         """
@@ -617,7 +617,7 @@ class GradShafranovEquilibrium(Equilibrium):
         p0 = self.p[0] * mu0  # beta0 in VMEC
         #  Get axis from R at boundary
         Ra = math.sqrt(self.Rb.sum().item() ** 2 + math.sqrt(8 / p0))
-        return f0 * l2 * Z**2 + p0 / 8 * (R**2 - Ra**2) ** 2
+        return f0 * l2 * Z ** 2 + p0 / 8 * (R ** 2 - Ra ** 2) ** 2
 
     def psi_(self, x: Tensor) -> Tensor:
         """
@@ -628,10 +628,11 @@ class GradShafranovEquilibrium(Equilibrium):
 
         l2 = self.fsq[0]  # R0**2 in VMEC
         f0 = -self.fsq[1] / 4 / l2  # beta1 in VMEC
-        p0 = self.p[0] * mu0 # beta0 in VMEC
+        p0 = self.p[0] * mu0  # beta0 in VMEC
 
-        Ra = math.sqrt(self.Rb.sum().item()**2 + math.sqrt(8/p0))
-        return (f0 * l2 * y ** 2 * self.R0**2 + p0 / 8 * (x**2 * self.R0**2 - Ra ** 2) ** 2) / self.psi_0
+        Ra = math.sqrt(self.Rb.sum().item() ** 2 + math.sqrt(8 / p0))
+        return (f0 * l2 * y ** 2 * self.R0 ** 2 + p0 / 8 * (
+                x ** 2 * self.R0 ** 2 - Ra ** 2) ** 2) / self.psi_0
 
     def grid(self, ns: int = None, normalized: bool = None) -> Tensor:
 
@@ -684,12 +685,12 @@ class GradShafranovEquilibrium(Equilibrium):
         return ax
 
     def fluxsurfacesplot(
-        self,
-        x,
-        ax,
-        psi: Optional[Tensor] = None,
-        ns: Optional[int] = None,
-        nplot: Optional[int] = 10,
+            self,
+            x,
+            ax,
+            psi: Optional[Tensor] = None,
+            ns: Optional[int] = None,
+            nplot: Optional[int] = 10,
     ):
         """
         Plot flux surfaces on (R, Z) plane.
@@ -733,20 +734,21 @@ class GradShafranovEquilibrium(Equilibrium):
 class InverseGSEquilibrium(Equilibrium):
 
     def __init__(
-        self,
-        # DSHAPE from DESC
-        # https://github.com/PlasmaControl/DESC/blob/master/examples/DESC/DSHAPE
-        p: Tuple[float] =  (1.6e+3, -3.2e+3, 1.6e+3),
-        iota: Tuple[float] = (1, -0.67),
-        Rb: Tuple[float] = (
-            3.51,
-            1,
-            0.106, 0, 0
-        ),
-        Zb: Tuple[float] = (0, 1.47, -0.16, 0, 0),
-        psi_0: float = 1,
-        Ra: float = 3.71270844,
-        **kwargs,
+            self,
+            # DSHAPE from DESC
+            # https://github.com/PlasmaControl/DESC/blob/master/examples/DESC/DSHAPE
+            p: Tuple[float] = (1.6e+3, -3.2e+3, 1.6e+3),
+            iota: Tuple[float] = (1, -0.67),
+            Rb: Tuple[float] = (
+                    3.51,
+                    1,
+                    0.106, 0, 0
+            ),
+            Zb: Tuple[float] = (0, 1.47, -0.16, 0, 0),
+            psi_0: float = 1,
+            Ra: float = 3.71270844,
+            symmetric: bool = True,
+            **kwargs,
     ) -> None:
         super().__init__(**kwargs)
 
@@ -754,6 +756,7 @@ class InverseGSEquilibrium(Equilibrium):
         self.p = torch.as_tensor(p)
         self.iota = torch.as_tensor(iota)
         self.Ra = Ra
+        self.symmetric = symmetric
 
         # psi_boundary
         self.psi_0 = psi_0
@@ -762,6 +765,8 @@ class InverseGSEquilibrium(Equilibrium):
         assert len(Rb) == len(Zb)
         self.Rb = torch.as_tensor(Rb)
         self.Zb = torch.as_tensor(Zb)
+
+        self.a, self.b = self.ab()
 
     @property
     def _mpol(self) -> int:
@@ -777,18 +782,30 @@ class InverseGSEquilibrium(Equilibrium):
 
             # domain
             ns = int(math.sqrt(self.ndomain))
-            theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
-            rho = torch.sqrt(torch.linspace(0, 1, ns+2)[1:-1])
-            # r = torch.rand(ns, generator=generator) ** 2
+            if self.symmetric:
+                theta = (torch.linspace(0, 1, ns)) * torch.pi  # theta in [0,1]
+            else:
+                theta = (2 * torch.linspace(0, 1, ns + 1)[1:] - 1) * math.pi  # theta in [-pi,pi]
+            # rho = torch.sqrt(torch.linspace(0, 1, ns+2)[1:-1])
+            rho = torch.linspace(0, 1, ns + 2)[1:-1]  # ** 2
             domain = torch.cartesian_prod(rho, theta)
 
             # boundary
-            theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
+            # theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
+            if self.symmetric:
+                theta = (torch.linspace(0, 1, ns)) * torch.pi  # theta in [0,1]
+            else:
+                theta = (2 * torch.linspace(0, 1, ns + 1)[1:] - 1) * math.pi  # theta in [-pi,pi]
             rho = torch.ones_like(theta)
             boundary = torch.stack([rho, theta], dim=-1)
 
             # axis
-            theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
+            # theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
+            if self.symmetric:
+                theta = (torch.linspace(0, 1, ns)) * torch.pi  # theta in [0,pi]
+            else:
+                theta = (2 * torch.linspace(0, 1, ns+1)[1:] - 1) * math.pi  # theta in [-pi,pi]
+            # theta = torch.zeros(1)
             rho = torch.zeros_like(theta)
             axis = torch.stack([rho, theta], dim=-1)
 
@@ -807,7 +824,7 @@ class InverseGSEquilibrium(Equilibrium):
         # rho = sqrt(s) = sqrt(psi/psi_0)
         p = 0
         for i, coef in enumerate(self.p):
-            p += coef * rho**(i*2)
+            p += coef * rho ** (i * 2)
         return p
 
     def iota_fn(self, rho):
@@ -815,28 +832,8 @@ class InverseGSEquilibrium(Equilibrium):
         # rho = sqrt(s) = sqrt(psi/psi_0)
         iota = 0
         for i, coef in enumerate(self.iota):
-            iota += coef * rho**(i*2)
-        return iota  #* 2 * torch.pi
-
-    def _lam(self, theta):
-        # \lambda = f(\rho, \theta, \zeta)
-        # return lambda as the free coordinate
-        # lambda = 0 for now, theta-theta s.t. torch AD registers operation
-        lam = theta - theta
-        return lam
-
-    def _jacobian_debug(self, x, rtheta):
-        dR_drtheta = grad(x[:, 0], rtheta, create_graph=True)
-        dZ_drtheta = grad(x[:, 1], rtheta, create_graph=True)
-        dR_drho = dR_drtheta[:, 0]
-        dR_dtheta = dR_drtheta[:, 1]
-        dZ_drho = dZ_drtheta[:, 0]
-        dZ_dtheta = dZ_drtheta[:, 1]
-        g_theta2 = dR_dtheta * dR_dtheta + dZ_dtheta * dZ_dtheta
-        g_rhotheta = dR_drho * dR_dtheta + dZ_drho * dZ_dtheta
-        jacobian = self._jacobian(x[:, 0], dR_drho=dR_drho, dR_dtheta=dR_dtheta,
-                                  dZ_drho=dZ_drho, dZ_dtheta=dZ_dtheta)
-        print(f"sqrt(g) = {jacobian}; g_rt = {g_rhotheta}; g_tt = {g_theta2}")
+            iota += coef * rho ** (i * 2)
+        return iota  # * 2 * torch.pi
 
     def _jacobian(self, R, dR_drho, dR_dtheta, dZ_drho, dZ_dtheta):
         # area element of metric tensor in axisymmetric toroidal domain
@@ -852,7 +849,7 @@ class InverseGSEquilibrium(Equilibrium):
         #     print(torch.min(jaco), torch.max(jaco))
         return R * (dR_dtheta * dZ_drho - dR_drho * dZ_dtheta)
 
-    def _F_of_rho(self, R, jacobian):
+    def _F_of_rho(self, R, jacobian, rho):
         # dpsi_drho = psi' = self.psi_0,
         # but this excludes dpsi_drho from autograd graph
         # todo this assumes lambda=0 (or theta* = theta)
@@ -861,38 +858,44 @@ class InverseGSEquilibrium(Equilibrium):
         # psi = (torch.sqrt(rho**2) * self.psi_0)
         # dpsi_drho = grad(psi, rho, create_graph=True)
         # dpsi_drho = torch.tensor(self.psi_0, requires_grad=True, dtype=torch.float)
-        flux_term = (self.psi_0 * R**2)/jacobian
+        flux_term = (self.psi_0 / (torch.pi * 2) * 2 * rho * R ** 2) / jacobian  # todo
         # lambda_term = 1 + grad(self._lam(theta), theta, create_graph=True)
 
         # flux_term = (self.psi_0 * x[:, 0] ** 2) / jacobian
         # lambda_term = grad(x[:, 2], rtheta, create_graph=True)[:, 1]
         # F_of_rho = flux_term + flux_term * lambda_term
 
-        return flux_term #* lambda_term
+        return flux_term  # * lambda_term
 
     def _mae_pde_loss(self, x: Tensor, cartesians: Tensor) -> Tensor:
         return torch.zeros(1)
 
-    def F_covariant_rho(self, x, rtheta):
+    def F_covariant_rho(self, rtheta, XZlambda):
+        # DESC derived
+        # if self.symmetric:
+        #     a = XZlambda.clone()
+        #     a[range(a.shape[0]), 1] *= -1
+        #     XZlambda = torch.vstack((XZlambda, a))
+
         f_iota = self.iota_fn(rtheta[:, 0])
         f_p = self.p_fn(rtheta[:, 0])
-        dR_drtheta = grad(x[:, 0], rtheta, create_graph=True)
-        dZ_drtheta = grad(x[:, 1], rtheta, create_graph=True)
+        dR_drtheta = grad(XZlambda[:, 0], rtheta, create_graph=True)
+        dZ_drtheta = grad(XZlambda[:, 1], rtheta, create_graph=True)
         dR_drho = dR_drtheta[:, 0]
         dR_dtheta = dR_drtheta[:, 1]
         dZ_drho = dZ_drtheta[:, 0]
         dZ_dtheta = dZ_drtheta[:, 1]
         g_theta2 = dR_dtheta * dR_dtheta + dZ_dtheta * dZ_dtheta
         g_rhotheta = dR_drho * dR_dtheta + dZ_drho * dZ_dtheta
-        jacobian = self._jacobian(x[:, 0], dR_drho=dR_drho, dR_dtheta=dR_dtheta,
+        jacobian = self._jacobian(XZlambda[:, 0], dR_drho=dR_drho, dR_dtheta=dR_dtheta,
                                   dZ_drho=dZ_drho, dZ_dtheta=dZ_dtheta)
-        dpsi_drho = self.psi_0 * 2 * rtheta[:, 0]
+        dpsi_drho = self.psi_0 * 2 * rtheta[:, 0] / (torch.pi * 2)
         dchi_drho = f_iota * dpsi_drho
-        B_contravariant_zeta = dpsi_drho / (torch.pi * 2 * jacobian)
-        dLambda_dtheta = grad(x[:, 2], rtheta, create_graph=True)[:, 1]
+        B_contravariant_zeta = dpsi_drho / (jacobian)
+        dLambda_dtheta = grad(XZlambda[:, 2], rtheta, create_graph=True)[:, 1]
         B_contravariant_zeta = B_contravariant_zeta + B_contravariant_zeta * dLambda_dtheta
-        B_contravariant_theta = dchi_drho / (torch.pi * 2 * jacobian)
-        force_grad = B_contravariant_zeta * x[:, 0]
+        B_contravariant_theta = dchi_drho / (jacobian)
+        force_grad = B_contravariant_zeta * XZlambda[:, 0] ** 2
         force_grad = grad(force_grad, rtheta, create_graph=True)[:, 0]
         bracket_term1 = B_contravariant_theta * g_theta2
         bracket_term1 = grad(bracket_term1, rtheta, create_graph=True)[:, 0]
@@ -900,9 +903,14 @@ class InverseGSEquilibrium(Equilibrium):
         bracket_term2 = grad(bracket_term2, rtheta, create_graph=True)[:, 1]
         dp_drho = grad(f_p, rtheta, create_graph=True)[:, 0]
         F_cov_rho = - B_contravariant_zeta * force_grad - \
-                  B_contravariant_theta * (bracket_term1 - bracket_term2) - dp_drho
-        F_cov_rho = F_cov_rho * mu0
-        return torch.pow(F_cov_rho, 2).sum()
+                    B_contravariant_theta * (bracket_term1 - bracket_term2) - dp_drho * mu0
+        # F_cov_rho = F_cov_rho * mu0
+        norm_rho = XZlambda[:, 0] / jacobian * torch.sqrt(dR_dtheta ** 2 + dZ_dtheta ** 2)
+        f_rho = torch.abs(F_cov_rho) * torch.abs(jacobian) * torch.abs(norm_rho)
+
+        f_rho = f_rho.mean() * (torch.pi * 2)  # todo
+        return f_rho
+        # return torch.pow(f_rho, 2).sum()
 
     def F_covariant_rho_vmec(self, x, rtheta):
         # rho = rtheta[:, 0]
@@ -921,7 +929,7 @@ class InverseGSEquilibrium(Equilibrium):
         jacobian = self._jacobian(x[:, 0], dR_drho=dR_drho, dR_dtheta=dR_dtheta,
                                   dZ_drho=dZ_drho, dZ_dtheta=dZ_dtheta)
 
-        dchi_drho = self.psi_0 * f_iota # * 2 * rtheta[:, 0]
+        dchi_drho = self.psi_0 * f_iota  # * 2 * rtheta[:, 0]
 
         F_of_rho = self._F_of_rho(x[:, 0], jacobian)
         # flux_term = (self.psi_0 * x[:, 0] ** 2) / jacobian
@@ -939,7 +947,7 @@ class InverseGSEquilibrium(Equilibrium):
         F_cov_rho = dchi_drho / (jacobian) * (term1 - term2) \
                     + (F_of_rho * dFrho_drho) / (torch.pow(x[:, 0], 2)) \
                     + mu0 * dp_drho
-        F_cov_rho = mu0 * F_cov_rho
+        # F_cov_rho = mu0 * F_cov_rho
 
         # F_cov_rho = dchi_drho / (jacobian * mu0) * (term1 - term2) \
         #             + (F_of_rho * dFrho_drho) / (torch.pow(x[:, 0], 2) * mu0) \
@@ -947,28 +955,92 @@ class InverseGSEquilibrium(Equilibrium):
 
         return torch.pow(F_cov_rho, 2).sum()
 
-    def _pde_closure(self, x: Tensor, cartesians: Tensor) -> Tensor:
-        return self.F_covariant_rho(rtheta=x, x=cartesians)
+    def _pde_closure(self, x: Tensor, preds: Tensor) -> Tensor:
+        return self.F_covariant_rho(rtheta=x, XZlambda=preds)
 
     def _boundary_closure(self, x: Tensor, cartesians: Tensor) -> Tensor:
         # theta = torch.atan2(x[:, 1], x[:, 2])
-        theta = x[:, 1] + cartesians[:, 2]
+        theta = x[:, 1]  # + cartesians[:, 2]
         Rb = torch.as_tensor([self.Rb_fn(t) for t in theta])
         Zb = torch.as_tensor([self.Zb_fn(t) for t in theta])
         return (torch.pow(Rb - cartesians[:, 0], 2) + torch.pow((Zb - cartesians[:, 1]), 2)).sum()
 
-    def _axis_closure(self, x: Tensor, cartesians: Tensor) -> Tensor:
+    def _axis_closure_old(self, x: Tensor, preds: Tensor) -> Tensor:
         # at axis (s,theta)=(0,0)
-        axis_loc = torch.Tensor([self.Ra, 0]).view(1,2)
-        axis_loc = axis_loc.expand_as(cartesians)
-        return torch.pow(cartesians - axis_loc, 2).sum()
+        axis_loc = torch.Tensor([self.Ra, 0]).view(1, 2)
+        axis_loc = axis_loc.expand_as(preds[:, :-1])
+        return torch.pow(preds[:, :-1] - axis_loc, 2).sum()
+
+    def _axis_closure(self, x: Tensor, RZl: Tensor) -> Tensor:
+
+        dR_drtheta = grad(RZl[:, 0], x, create_graph=True)
+        dZ_drtheta = grad(RZl[:, 1], x, create_graph=True)
+        dR_drho = dR_drtheta[:, 0]
+        dR_dtheta = dR_drtheta[:, 1]
+        dZ_drho = dZ_drtheta[:, 0]
+        dZ_dtheta = dZ_drtheta[:, 1]
+        g_theta2 = dR_dtheta * dR_dtheta + dZ_dtheta * dZ_dtheta
+        g_rhotheta = dR_drho * dR_dtheta + dZ_drho * dZ_dtheta
+        jacobian = self._jacobian(RZl[:, 0], dR_drho=dR_drho, dR_dtheta=dR_dtheta,
+                                  dZ_drho=dZ_drho, dZ_dtheta=dZ_dtheta)
+        djaco_drho = grad(jacobian, x, create_graph=True)[:, 0]
+        djaco_drhorho = grad(djaco_drho, x, create_graph=True)[:, 0]
+        f_p = self.p_fn(x[:, 0])
+        f_iota = self.iota_fn(x[:, 0]) / (torch.pi * 2)
+        dpsi_drho = self.psi_0 * 2 * x[:, 0] / (torch.pi * 2)
+        dpsi_drhorho = 2 * self.psi_0 / (torch.pi * 2)
+        dlambda_dtheta = grad(RZl[:, 2], x, create_graph=True)[:, 1]
+        dlambda_dthetarho = grad(dlambda_dtheta, x, create_graph=True)[:, 0]
+        dlambda_dthetarhorho = grad(dlambda_dthetarho, x, create_graph=True)[:, 0]
+        dR2_drho = grad(RZl[:, 0] ** 2, x, create_graph=True)[:, 0]
+        diota_drho = grad(f_iota, x, create_graph=True)[:, 0]
+        dgtheta2_drho = grad(g_theta2, x, create_graph=True)[:, 0]
+        dgthetarho_drho = grad(g_rhotheta, x, create_graph=True)[:, 0]
+        dp_drho = grad(f_p, x, create_graph=True)[:, 0]
+        B_0_zeta = 1 / (2 * torch.pi * djaco_drho) * \
+                   (
+                           dpsi_drhorho + dpsi_drhorho * dlambda_dtheta +
+                           dlambda_dthetarho * dpsi_drho
+                   )
+        B_0_zeta_drho = 1 / (2 * torch.pi) * \
+                        (
+                                1 / djaco_drho *
+                                (
+                                        2 * dpsi_drhorho * dlambda_dthetarho
+                                        + dlambda_dthetarhorho * dpsi_drho
+                                )
+                                - djaco_drhorho / (djaco_drho ** 2) *
+                                (
+                                        dpsi_drhorho * (1 + dlambda_dtheta)
+                                        + dlambda_dthetarho * dpsi_drho
+                                )
+                        )
+        F_0_drho = 1 / mu0 * \
+                   (
+                           - B_0_zeta * (B_0_zeta_drho * RZl[:, 0] ** 2 + dR2_drho * B_0_zeta)
+                           - f_iota * B_0_zeta *
+                           (
+                               (B_0_zeta_drho * f_iota + B_0_zeta * diota_drho) * g_theta2
+                               + dgtheta2_drho * B_0_zeta * f_iota
+                               - dgthetarho_drho * B_0_zeta * f_iota
+                           )
+                   ) - dp_drho
+        dZ_drhotheta = grad(dZ_dtheta, x, create_graph=True)[:, 0]
+        dR_drhotheta = grad(dR_dtheta, x, create_graph=True)[:, 0]
+        norm_rho_0 = RZl[:, 0] / djaco_drho * torch.sqrt(dZ_drhotheta**2 + dR_drhotheta**2)
+        f_rho_0 = torch.abs(F_0_drho) * torch.abs(norm_rho_0) * torch.abs(jacobian)
+        f_rho_0 = f_rho_0.mean()
+        return f_rho_0
 
     def grid(self, ns: int = None, normalized: bool = None) -> Tensor:
 
         if ns is None:
             ns = int(math.sqrt(self.ndomain))
 
-        theta = (2 * torch.linspace(0, 1, ns) - 1) * torch.pi
+        if self.symmetric:
+            theta = (torch.linspace(0, 1, ns)) * torch.pi
+        else:
+            theta = (2 * torch.linspace(0, 1, ns) - 1) * torch.pi
         rho = torch.pow(torch.linspace(0, 1, ns), 2)
         domain = torch.cartesian_prod(rho, theta)
 
@@ -984,7 +1056,7 @@ class InverseGSEquilibrium(Equilibrium):
         # yy = Z.view(ns, ns)
 
         # cs = ax.contour(xx, yy, )
-        ax.plot(R, Z,)# color="k")
+        ax.scatter(R, Z, s=0.5)  # color="k")
 
         # ax.clabel(cs, inline=True, fontsize=10, fmt="%1.3f")
         ax.axis("equal")
@@ -995,12 +1067,12 @@ class InverseGSEquilibrium(Equilibrium):
         return ax
 
     def fluxsurfacesplot(
-        self,
-        x,
-        ax,
-        psi: Optional[Tensor] = None,
-        ns: Optional[int] = None,
-        nplot: Optional[int] = 10,
+            self,
+            x,
+            ax,
+            psi: Optional[Tensor] = None,
+            ns: Optional[int] = None,
+            nplot: Optional[int] = 10,
     ):
         """
         Plot flux surfaces on (R, Z) plane.
@@ -1039,14 +1111,14 @@ class InverseGSEquilibrium(Equilibrium):
         return ax
 
     def closure(
-        self,
-        x_domain: Tensor,
-        psi_domain: Tensor,
-        x_boundary: Tensor,
-        psi_boundary: Tensor,
-        x_axis: Optional[Tensor] = None,
-        psi_axis: Optional[Tensor] = None,
-        return_dict: Optional[bool] = False,
+            self,
+            x_domain: Tensor,
+            psi_domain: Tensor,
+            x_boundary: Tensor,
+            psi_boundary: Tensor,
+            x_axis: Optional[Tensor] = None,
+            psi_axis: Optional[Tensor] = None,
+            return_dict: Optional[bool] = False,
     ) -> Tensor:
         loss = {"pde": self.pde_closure(x_domain, psi_domain),
                 "boundary": self.boundary_closure(x_boundary, psi_boundary)}
@@ -1054,6 +1126,34 @@ class InverseGSEquilibrium(Equilibrium):
         if x_axis is not None:
             loss["axis"] = self.axis_closure(x_axis, psi_axis)
             loss["tot"] += loss["axis"]
+        # loss["convex"] = self.soft_boundary_loss(x_boundary, RZdomain=psi_domain)
+        # loss["tot"] += loss['convex']
         if return_dict:
             return loss
         return loss["tot"]
+
+    def soft_boundary_loss(self, x_boundary, RZdomain):
+        theta = x_boundary[:, 1]
+        Rb = torch.as_tensor([self.Rb_fn(t) for t in theta])
+        Rmax = Rb.max()
+        Rmin = Rb.min()
+        Zb = torch.as_tensor([self.Zb_fn(t) for t in theta])
+        Zmax = Zb.max()
+        Zmin = Zb.min()
+        R_loss = RZdomain[RZdomain[:, 0]<Rmin][:,0].sum()
+        R_loss += RZdomain[RZdomain[:, 0]>Rmax][:,0].sum()
+        Z_loss = torch.abs(RZdomain[RZdomain[:, 1]<Zmin-0.2][:,1].sum())
+        Z_loss += torch.abs(RZdomain[RZdomain[:, 1]>Zmax+0.2][:,1].sum())
+        return Z_loss + R_loss
+
+    def ab(self):
+        theta = (2 * torch.linspace(0, 1, 100) + 1) * torch.pi
+
+        Rb = torch.as_tensor([self.Rb_fn(t) for t in theta])
+        Zb = torch.as_tensor([self.Zb_fn(t) for t in theta])
+
+        a = (Rb.max() - Rb.min()) / 2
+        b = (Zb.max() - Zb.min()) / 2
+
+        return a, b
+

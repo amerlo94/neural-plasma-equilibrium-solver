@@ -12,7 +12,7 @@ from plot_utils import plot_solution, plot_grid
 torch.set_default_tensor_type(torch.DoubleTensor)
 
 
-def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 42):
+def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 420):
 
     assert equilibrium in ("high-beta", "grad-shafranov", "inverse-grad-shafranov")
 
@@ -50,14 +50,15 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
         model = GradShafranovMLP(**params)
     elif equilibrium == "inverse-grad-shafranov":
         equi = InverseGSEquilibrium(**params)
-        params = {"R0": equi.Rb[0]}
+        params = {"R0": equi.Ra, "a": equi.a, "b": equi.b}
+        # params = {}
         model = InverseGradShafranovMLP(**params)
     else:
         raise NotImplementedError(f"{equilibrium}")
 
     model.train()
 
-    learning_rate = 0.2
+    learning_rate = 0.05
     optimizer = torch.optim.LBFGS(
         model.parameters(),
         lr=learning_rate,
@@ -85,6 +86,9 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
 
             x_domain.requires_grad_()
 
+            if equilibrium == "inverse-grad-shafranov":
+                x_axis.requires_grad_()
+
             def closure():
                 optimizer.zero_grad()
                 if equilibrium == "grad-shafranov" or \
@@ -94,8 +98,8 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
                         model(x_domain),
                         x_boundary,
                         model(x_boundary),
-                        # x_axis,
-                        # model(x_axis),
+                        x_axis,
+                        model(x_axis),
                     )
                 elif (equilibrium == "high-beta"):
                     loss = equi.closure(
@@ -120,8 +124,8 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
                         model(x_domain),
                         x_boundary,
                         model(x_boundary),
-                        # x_axis,
-                        # model(x_axis),
+                        x_axis,
+                        model(x_axis),
                         return_dict=True
                     )
                 elif equilibrium == "high-beta":
@@ -212,8 +216,16 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
         x.requires_grad_()
         preds = model(x)
         equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
-        equi.fluxplot(preds.detach().numpy(), ax)
-        plot_solution(x, preds, colorvar=1, ax=ax)
+        #equi.fluxplot(preds.detach().numpy(), ax)
+        plot_solution(x, preds, colorvar=1, ax=ax, title="theta")
+        plt.show()
+        fig, ax = plt.subplots(1, 1, tight_layout=True)
+        x = equi.grid(normalized=normalized)
+        x.requires_grad_()
+        preds = model(x)
+        equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
+        # equi.fluxplot(preds.detach().numpy(), ax)
+        plot_solution(x, preds, colorvar=0, ax=ax, title="rho")
         plt.show()
 
 
@@ -235,4 +247,4 @@ if __name__ == "__main__":
     #  TODO: add argparse with default configuration
     # train(equilibrium="high-beta", normalized=True, nepochs=200)
     # train(equilibrium="grad-shafranov", normalized=True, nepochs=100)
-    train(equilibrium="inverse-grad-shafranov", nepochs=50)
+    train(equilibrium="inverse-grad-shafranov", nepochs=100)

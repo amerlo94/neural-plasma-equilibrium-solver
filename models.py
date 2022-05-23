@@ -140,12 +140,16 @@ class InverseGradShafranovMLP(torch.nn.Module):
     def __init__(self,
                  width: int = 16,
                  R0: float = 0.0,
+                 a = 0., b = 0.
                  ) -> None:
         super().__init__()
 
         self.R0 = R0
+        self.a, self.b = a, b
 
-        self.fc1 = torch.nn.Linear(2, width)
+        self.fc0 = torch.nn.Linear(2, width)
+        self.relu = torch.nn.Tanh()
+        self.fc1 = torch.nn.Linear(width, width)
         self.tanh = torch.nn.Tanh()
         self.fc2 = torch.nn.Linear(width, 3)
 
@@ -153,9 +157,29 @@ class InverseGradShafranovMLP(torch.nn.Module):
         torch.nn.init.zeros_(self.fc2.bias)
         # with torch.no_grad():
         #     self.fc2.bias[0].data = self.R0
-        torch.nn.init.normal_(self.fc2.weight, std=6e-1)
+        torch.nn.init.normal_(self.fc2.weight, std=2e-3)
 
-    def forward(self, x: Tensor) -> Tensor:
+        self.forward = self.forward_
+
+    def forward_(self, x: Tensor) -> Tensor:
+        # x = torch.cat((
+        #     x[:, 0].unsqueeze(1),
+        #     torch.sin(x[:, 1]).unsqueeze(1),
+        #     torch.cos(x[:, 1]).unsqueeze(1)
+        # ), dim=1)
+
+        # x = torch.cat((x[:,0].unsqueeze(1),
+        #    (x[:,1]/(torch.pi)).unsqueeze(1)), dim=1)
+
+        out = self.fc0(x)
+        out = self.relu(out / 2)
+        out = self.fc1(out)
+        out = self.tanh(out / 2)
+        out = self.fc2(out)  # * x[:, :1]
+        out[:, 0] = out[:, 0] + self.R0
+        return out
+
+    def forward_sym(self, x: Tensor) -> Tensor:
         # s = x[:, 0]
         # theta = x[:, 1]
 
@@ -165,13 +189,36 @@ class InverseGradShafranovMLP(torch.nn.Module):
         #     torch.cos(x[:, 1]).unsqueeze(1)
         # ), dim=1)
 
-        RZ = self.fc1(x)
-        RZ = self.tanh(RZ / 2)
-        RZ = self.fc2(RZ)  # * x[:, :1]
+        # x = torch.cat((x[:,0].unsqueeze(1),
+        #    (x[:,1]/(torch.pi)).unsqueeze(1)), dim=1)
 
-        RZ[:, 0] = RZ[:, 0] + self.R0
+        #out = x[x[:, 1] % torch.pi != 0]  # only theta > 0 components, upper half plane (Z>0)
+        out = x[x[:, 1] >= 0].clone()
+        idc_z0 = (out[:, 1] % torch.pi == 0).nonzero(as_tuple=True)[0]
+        z0_mask = torch.ones_like(out[:,0], dtype=torch.bool)
+        z0_mask[idc_z0] = 0
+        #out = torch.vstack((out, x[x[:, 1] % torch.pi == 0]))  # points on R,Z=0 axis
+        out = self.fc0(out)
+        out = self.relu(out/2)
+        out = self.fc1(out)
+        out = self.tanh(out/2)
+        out = self.fc2(out)  # * x[:, :1]
 
-        return RZ
+        out[:, 0] = out[:, 0] + self.R0
+
+        # predict 1/(2*Nfp) R,Z,lambda (up-down symmetry) - then mirror
+        idc_neg = (x[:, 1] < 0).nonzero(as_tuple=True)[0]
+        idc_pos = (x[:, 1] >= 0).nonzero(as_tuple=True)[0]
+        out_mirror = torch.zeros(size=(x.shape[0], 3))
+        out_mirror[idc_pos] = out.clone()
+        out_mirror[idc_neg] = out[z0_mask].clone()
+        out_mirror[idc_neg, 1] *= -1  # Z = -Z in stellarator symmetry when flipping theta
+        # out_mirror[idc_0] = out[-len(idc_0):]
+        # out_mirror[idc_neg] = out[:-len(idc_0)]
+        # out_mirror[idc_neg, 1] *= -1
+        # out_mirror[idc_neg] = out
+
+        return out_mirror
 
 
 
