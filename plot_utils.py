@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 def plot_psi_collocationpoints(psi, grid, axis_guess=None):
     print(f"Grid: x = [{grid[:,0].min()}, {grid[:,0].max()}] "
-    f"y = [{grid[:,1].min()}, {grid[:,1].max()}]")
+          f"y = [{grid[:,1].min()}, {grid[:,1].max()}]")
     print(f"Psi = [{psi.min()}, {psi.max()}]")
     grid = grid.detach().numpy()
     psi = psi.detach().numpy()
@@ -18,26 +18,37 @@ def plot_psi_collocationpoints(psi, grid, axis_guess=None):
     cbar.ax.set_ylabel("Psi", rotation=270)
     if axis_guess is not None:
         ax.scatter(axis_guess[0], axis_guess[1], marker="x")
-        plt.show()
+    plt.show()
 
 
-def plot_grid(grid, polar=True):
-    print(f"Grid: x = [{grid[:, 0].min()}, {grid[:, 0].max()}] "
-    f"y = [{grid[:, 1].min()}, {grid[:, 1].max()}]")
+def plot_grid(domain=None, boundary=None, axis=None, polar=True):
+
     fig, ax = plt.subplots(1, 1, tight_layout=True)
-    if polar:
-        ax.scatter(grid[:, 0].detach().numpy() * np.cos(grid[:,1].detach().numpy()),
-        grid[:, 0].detach().numpy() * np.sin(grid[:,1].detach().numpy()))
-    else:
-        ax.scatter(grid[:, 0].detach().numpy(), grid[:, 1].detach().numpy())
-        plt.show()
 
-def plot_solution(grid, preds, ax=None, colorvar: int = 0):
+    grids = []
+    if domain is not None:
+        grids.append(domain)
+    if boundary is not None:
+        grids.append(boundary)
+    if axis is not None:
+        grids.append(axis)
+
+    for grid in grids:
+        print(f"Grid: x = [{grid[:, 0].min()}, {grid[:, 0].max()}] "
+              f"y = [{grid[:, 1].min()}, {grid[:, 1].max()}]")
+        if polar:
+            ax.scatter(grid[:, 0].detach().numpy() * np.cos(grid[:,1].detach().numpy()),
+                       grid[:, 0].detach().numpy() * np.sin(grid[:,1].detach().numpy()))
+        else:
+            ax.scatter(grid[:, 0].detach().numpy(), grid[:, 1].detach().numpy())
+    plt.show()
+
+def plot_solution(grid, preds, ax=None, colorvar: int = 0, title=" "):
     # 0 - rho , 1 - theta
     print(f"Grid: x = [{grid[:, 0].min()}, {grid[:, 0].max()}] "
-    f"y = [{grid[:, 1].min()}, {grid[:, 1].max()}]")
+          f"y = [{grid[:, 1].min()}, {grid[:, 1].max()}]")
     print(f"preds: x = [{preds[:, 0].min()}, {preds[:, 0].max()}] "
-    f"y = [{preds[:, 1].min()}, {preds[:, 1].max()}]")
+          f"y = [{preds[:, 1].min()}, {preds[:, 1].max()}]")
     grid = grid.detach().numpy()
     preds = preds.detach().numpy()
     if ax is None:
@@ -47,6 +58,7 @@ def plot_solution(grid, preds, ax=None, colorvar: int = 0):
         ax.set_ylabel(r"$Z [m]$")
         plt.scatter(preds[:,0], preds[:, 1], c=grid[:, colorvar], alpha=0.7)
         plt.colorbar()
+        plt.title(title)
         plt.show()
     else:
         ax.axis("equal")
@@ -54,4 +66,7 @@ def plot_solution(grid, preds, ax=None, colorvar: int = 0):
         ax.set_ylabel(r"$Z [m]$")
         plt.scatter(preds[:,0], preds[:, 1], c=grid[:, colorvar], alpha=0.7)
         plt.colorbar()
+        plt.title(title)
         plt.show()
+
+
