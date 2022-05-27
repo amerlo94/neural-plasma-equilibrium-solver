@@ -169,3 +169,66 @@ def get_solovev_boundary(
             break
 
     return Rb.detach()
+
+
+def get_RlZ_from_wout(
+    x: Tensor, wout_path: str, deg: Optional[int] = 1, mpol: Optional[int] = 2
+):
+    """
+    Compute flux surfaces geometry on a given grid from a VMEC wout file.
+
+    Args:
+        x (torch.Tensor): the rho-theta grid on which to compute the RlZ tensor.
+        wout_path (str): the wout file path.
+        deg (int, optional): the degree of the polynomials to use to fit the VMEC solution. Default: 1.
+        mpol (int, optional): the highest poloidal modes to use to build the RlZ tensor. Default: 2.
+    """
+
+    wout = get_wout(wout_path)
+
+    rho = x[:, 0]
+    theta = x[:, 1]
+
+    #  Build differentiable solution
+    ns = wout["ns"][:].data.item()
+    phi = np.linspace(0, 1, ns)
+
+    def get_fit(x: str):
+        xmn = wout[x][:].data
+        xmn_ = []
+        #  lmns is defined on half-mesh
+        if x == "lmns":
+            ns = xmn.shape[0]
+            phi[1:] = np.linspace(0, 1, ns)[:-1] + 1 / (2 * ns)
+        for m in range(min(xmn.shape[1], mpol + 1)):
+            #  Fit xm / rho ** m
+            factor = np.ones_like(phi)
+            if m != 0:
+                factor = np.sqrt(phi) ** m
+            coef = np.polynomial.Polynomial.fit(
+                phi[1:], xmn[1:, m] / factor[1:], deg=deg, domain=[0, 1], window=[0, 1]
+            ).coef.tolist()
+            fit = 0
+            for i, c in enumerate(coef):
+                fit += c * rho ** (2 * i + m)
+            xmn_.append(fit)
+        return torch.stack(xmn_, dim=-1)
+
+    rmnc = get_fit("rmnc")
+    lmns = get_fit("lmns")
+    zmns = get_fit("zmns")
+
+    def get_x(xm, basis):
+        mpol = xm.shape[-1]
+        tm = torch.outer(theta, torch.arange(mpol, dtype=xm.dtype))
+        if basis == "cos":
+            tm = torch.cos(tm)
+        else:
+            tm = torch.sin(tm)
+        return (tm * xm).sum(dim=1).view(-1, 1)
+
+    R = get_x(rmnc, basis="cos")
+    l = get_x(lmns, basis="sin")
+    Z = get_x(zmns, basis="sin")
+
+    return torch.cat([R, l, Z], dim=-1)

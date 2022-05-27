@@ -10,8 +10,12 @@ import torch
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 
-from models import HighBetaMLP, GradShafranovMLP
-from physics import HighBetaEquilibrium, GradShafranovEquilibrium
+from models import HighBetaMLP, GradShafranovMLP, InverseGradShafranovMLP
+from physics import (
+    HighBetaEquilibrium,
+    GradShafranovEquilibrium,
+    InverseGradShafranovEquilibrium,
+)
 from utils import log_gradients, mae, get_flux_surfaces_from_wout
 
 torch.set_default_tensor_type(torch.DoubleTensor)
@@ -41,6 +45,13 @@ def get_equilibrium_and_model(**equi_kws):
                 "psi_0": equi.psi_0,
             }
         model = GradShafranovMLP(**model_kws)
+        return equi, model
+
+    if target == "inverse-grad-shafranov":
+        equi = InverseGradShafranovEquilibrium(**_equi_kws)
+        if not equi.normalized:
+            model_kws = {"Rb": equi.Rb, "Zb": equi.Zb}
+        model = InverseGradShafranovMLP(**model_kws)
         return equi, model
 
     raise RuntimeError("Equilibrium " + target + " is not supported")
@@ -191,7 +202,11 @@ def train(
 
     #  Plot magnetic flux
     fig, ax = plt.subplots(1, 1, tight_layout=True)
-    equi.fluxplot(grid, psi_hat, ax, linestyles="dashed")
+    if target == "inverse-grad-shafranov":
+        #  psi_hat == RlZ
+        equi.fluxsurfacesplot(psi_hat[:, [0, 2]], ax)
+    else:
+        equi.fluxplot(grid, psi_hat, ax, linestyles="dashed")
     if has_analytical_solution:
         #  Plot analytical solution
         equi.fluxplot(grid, psi, ax, linestyles="solid")
@@ -199,6 +214,10 @@ def train(
         #  Plot VMEC flux surfaces
         rz, psi = get_flux_surfaces_from_wout(equi.wout_path)
         equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
+    if target == "inverse-grad-shafranov" and equi.wout_path is not None:
+        #  Plot VMEC flux surfaces
+        rz, psi = get_flux_surfaces_from_wout(equi.wout_path)
+        equi.fluxsurfacesplot(rz, ax, ns=psi.shape[0])
 
     #  Plot scatter plot
     if target == "high-beta":

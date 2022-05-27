@@ -2,10 +2,15 @@
 
 import pytest
 import torch
+import numpy as np
 
 from models import GradShafranovMLP
-from physics import HighBetaEquilibrium, GradShafranovEquilibrium
-from utils import grad, get_profile_from_wout, ift
+from physics import (
+    HighBetaEquilibrium,
+    GradShafranovEquilibrium,
+    InverseGradShafranovEquilibrium,
+)
+from utils import grad, get_profile_from_wout, ift, get_RlZ_from_wout, get_wout
 
 #########
 # Utils #
@@ -186,3 +191,139 @@ def test_grad_shafranov_eps(noise, reduction, fsq0, normalized):
         psi *= 1 + torch.randn(psi.shape) * noise
         eps = equi.eps(x, psi=psi, reduction=reduction).max().item()
         assert eps > noise
+
+
+#  TODO: improve fitting of RlZ, especially for lambda
+@pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc", "data/wout_SOLOVEV.nc"))
+@pytest.mark.parametrize("ntheta", (32,))
+@pytest.mark.parametrize("s", range(128))
+@pytest.mark.parametrize("xmn", ("rmnc", "lmns", "zmns"))
+def test_get_RlZ_from_wout(wout_path, ntheta, xmn, s):
+
+    equi = InverseGradShafranovEquilibrium.from_vmec(wout_path)
+    equi.ntheta = ntheta
+    grid = equi.grid().to(torch.float64)
+
+    RlZ = get_RlZ_from_wout(grid, wout_path)
+    if xmn == "rmnc":
+        x = RlZ[:, 0]
+    elif xmn == "lmns":
+        x = RlZ[:, 1]
+    elif xmn == "zmns":
+        x = RlZ[:, 2]
+    x = x.view(-1, equi.ntheta)
+
+    wout = get_wout(wout_path)
+    basis = "cos" if xmn == "rmnc" else "sin"
+    vmec_x = ift(
+        torch.as_tensor(wout[xmn][:]).clone(),
+        basis=basis,
+        ntheta=grid[: equi.ntheta, 1],
+    )
+
+    #  Get quantity at the same radial location
+    rho_idx = int(s / 128 * x.shape[0])
+    rho = grid[:: equi.ntheta, 0][rho_idx]
+
+    ns = vmec_x.shape[0]
+    if xmn == "lmns":
+        phi = torch.zeros(ns)
+        phi[1:] = torch.linspace(0, 1, ns)[:-1] + 1 / (2 * ns)
+    else:
+        phi = torch.linspace(0, 1, vmec_x.shape[0])
+
+    phi_idx = (phi - rho**2).abs().argmin()
+
+    #  Skip if radial location does not match
+    if (phi[phi_idx] - rho**2).abs() > 1e-3:
+        return
+
+    #  Skip if on axis
+    if phi[phi_idx] == 0:
+        return
+
+    assert torch.allclose(
+        x[rho_idx], vmec_x[phi_idx], rtol=1e-2, atol=0
+    ), f"mae={((x[rho_idx] - vmec_x[phi_idx])/vmec_x[phi_idx]).abs().mean():.2e} at rho={rho:.2f}"
+
+
+#  TODO: compare force with pressure gradient
+@pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc", "data/wout_SOLOVEV.nc"))
+@pytest.mark.parametrize("ntheta", (32,))
+def test_inverse_grad_shafranov_pde_closure(wout_path, ntheta):
+
+    equi = InverseGradShafranovEquilibrium.from_vmec(wout_path)
+    equi.ntheta = ntheta
+    x = equi.grid()
+
+    #  Do not use axis and boundary
+    x = x[equi.ntheta : -equi.ntheta, :]
+    x.requires_grad_()
+
+    RlZ = get_RlZ_from_wout(x, wout_path)
+
+    fsq = equi.pde_closure(x, RlZ).item()
+    mean_f = np.sqrt(fsq) / (equi.ntheta * equi.ndomain)
+
+    assert mean_f < 1e-3
+
+
+#  TODO: review test once improved fitting for RlZ has been fixed
+@pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc", "data/wout_SOLOVEV.nc"))
+@pytest.mark.parametrize("ntheta", (32,))
+@pytest.mark.parametrize("s", range(128))
+def test_inverse_grad_shafranov_jacobian(wout_path, ntheta, s):
+
+    equi = InverseGradShafranovEquilibrium.from_vmec(wout_path)
+    equi.ntheta = ntheta
+    equi.ndomain = 32
+    x = equi.grid().to(torch.float64)
+
+    x.requires_grad_()
+    rho = x[:, 0]
+    theta = x[:, 1]
+
+    #  Use simply polynomials to avoid derivative issues
+    RlZ = get_RlZ_from_wout(x, wout_path)
+
+    #  Get differentiable jacobian
+    R = RlZ[:, 0]
+    Z = RlZ[:, 2]
+    dR_dx = grad(R, x, retain_graph=True)
+    Rs = dR_dx[:, 0]
+    Ru = dR_dx[:, 1]
+    dZ_dx = grad(Z, x, retain_graph=True)
+    Zs = dZ_dx[:, 0]
+    Zu = dZ_dx[:, 1]
+    jacobian = R * (Ru * Zs - Zu * Rs)
+    #  Get jacobian in VMEC flux coordinates
+    jacobian /= 2 * rho
+    jacobian = jacobian.view(-1, equi.ntheta)
+
+    #  Get VMEC jacobian
+    wout = get_wout(wout_path)
+    gmnc = torch.as_tensor(wout["gmnc"][:]).clone()
+    with torch.no_grad():
+        vmec_jacobian = ift(gmnc, basis="cos", ntheta=theta[: equi.ntheta])
+
+    #  Get quantity at the same radial location
+    rho_idx = int(s / 128 * jacobian.shape[0])
+    rho = rho[:: equi.ntheta][rho_idx]
+
+    ns = vmec_jacobian.shape[0]
+    phi = torch.zeros(ns)
+    phi[1:] = torch.linspace(0, 1, ns)[:-1] + 1 / (2 * ns)
+
+    phi_idx = (phi - rho**2).abs().argmin()
+
+    #  Skip if radial location does not match
+    if (phi[phi_idx] - rho**2).abs() > 1e-3:
+        return
+
+    #  Skip if on axis
+    if phi[phi_idx] == 0:
+        return
+
+    assert torch.allclose(
+        jacobian[rho_idx], vmec_jacobian[phi_idx], rtol=1e-2, atol=0
+    ), f"mae={((jacobian[rho_idx] - vmec_jacobian[phi_idx])/vmec_jacobian[phi_idx]).abs().mean():.2e} at rho={rho:.2f}"

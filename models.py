@@ -132,3 +132,69 @@ class GradShafranovMLP(torch.nn.Module):
         self.requires_grad_(True)
 
         return initial_guess.detach()
+
+
+class InverseGradShafranovMLP(torch.nn.Module):
+    def __init__(
+        self,
+        Rb,
+        Zb,
+        width: int = 16,
+    ) -> None:
+        super().__init__()
+
+        self.R_branch = torch.nn.Sequential(
+            torch.nn.Linear(2, width), torch.nn.Tanh(), torch.nn.Linear(width, 1)
+        )
+        self.l_branch = torch.nn.Sequential(
+            torch.nn.Linear(2, width), torch.nn.Tanh(), torch.nn.Linear(width, 1)
+        )
+        self.Z_branch = torch.nn.Sequential(
+            torch.nn.Linear(2, width), torch.nn.Tanh(), torch.nn.Linear(width, 1)
+        )
+        self.bias = torch.nn.Parameter(torch.zeros(2))
+
+        #  Boundary condition
+        self.Rb = Rb
+        self.Zb = Zb
+
+        #  Initialize layers
+        for tensor in (
+            self.R_branch[-1].weight,
+            self.Z_branch[-1].weight,
+            self.l_branch[-1].weight,
+        ):
+            torch.nn.init.normal_(tensor, std=3e-2)
+        for tensor in (
+            self.R_branch[-1].bias,
+            self.Z_branch[-1].bias,
+            self.l_branch[-1].bias,
+        ):
+            torch.nn.init.zeros_(tensor)
+        with torch.no_grad():
+            self.bias.data[0] = Rb[0]
+
+    def forward(self, x: Tensor) -> Tensor:
+        rho = x[:, 0].view(-1, 1)
+        #  TODO: Fix me, here we assume that the theta angles are the same in the whole domain
+        ntheta = 32
+        ns = int(x.shape[0] / ntheta)
+        theta = x[-ntheta:, 1]
+        #  Compute boundary
+        tm = torch.outer(theta, torch.arange(len(self.Rb), dtype=self.Rb.dtype))
+        costm = torch.cos(tm)
+        sintm = torch.sin(tm)
+        Rb = (costm * self.Rb).sum(dim=1)
+        Zb = (sintm * self.Zb).sum(dim=1)
+        Rb = Rb.repeat(ns).view(-1, 1)
+        Zb = Zb.repeat(ns).view(-1, 1)
+        #  Compute R, lambda and Z assuming stellarator symmetry
+        R = self.R_branch(torch.stack([x[:, 0], torch.cos(x[:, 1])], dim=-1))
+        l = self.l_branch(torch.stack([x[:, 0], torch.sin(x[:, 1])], dim=-1))
+        Z = self.Z_branch(torch.stack([x[:, 0], torch.sin(x[:, 1])], dim=-1))
+        #  Build model output
+        R = rho * Rb + (1 - rho) * self.bias[0] + self.Rb[1] * rho * (1 - rho) * R
+        l = l + self.bias[1]
+        Z = rho * Zb + self.Zb[1] * rho * (1 - rho) * Z
+        RlZ = torch.cat([R, l, Z], dim=-1)
+        return RlZ

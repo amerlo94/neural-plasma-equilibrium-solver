@@ -105,6 +105,40 @@ class Equilibrium(IterableDataset):
     def _mae_pde_loss_(self, x: Tensor, psi: Tensor) -> Tensor:
         raise NotImplementedError
 
+    @property
+    def _mpol(self) -> int:
+        return len(self.Rb)
+
+    def p_fn(self, psi):
+        p = 0
+        for i, coef in enumerate(self.p):
+            p += coef * psi**i
+        return p
+
+    def fsq_fn(self, psi):
+        fsq = 0
+        for i, coef in enumerate(self.fsq):
+            fsq += coef * psi**i
+        return fsq
+
+    def iota_fn(self, psi):
+        iota = 0
+        for i, coef in enumerate(self.iota):
+            iota += coef * psi**i
+        return iota
+
+    def Rb_fn(self, theta):
+        basis = torch.cos(torch.as_tensor([i * theta for i in range(self._mpol)]))
+        return (self.Rb * basis).sum()
+
+    def Zb_fn(self, theta):
+        basis = torch.sin(torch.as_tensor([i * theta for i in range(self._mpol)]))
+        return (self.Zb * basis).sum()
+
+    def update_axis(self, axis_guess):
+        #  Axis should have Za=0 by symmetry
+        self._Ra = axis_guess[0]
+
 
 class HighBetaEquilibrium(Equilibrium):
     def __init__(
@@ -387,22 +421,6 @@ class GradShafranovEquilibrium(Equilibrium):
             **kwargs,
         )
 
-    @property
-    def _mpol(self) -> int:
-        return len(self.Rb)
-
-    def p_fn(self, psi):
-        p = 0
-        for i, coef in enumerate(self.p):
-            p += coef * psi**i
-        return p
-
-    def fsq_fn(self, psi):
-        fsq = 0
-        for i, coef in enumerate(self.fsq):
-            fsq += coef * psi**i
-        return fsq
-
     def __iter__(self):
 
         generator = torch.Generator()
@@ -433,18 +451,6 @@ class GradShafranovEquilibrium(Equilibrium):
             if self.normalized:
                 yield domain / self.Rb[0], boundary / self.Rb[0], axis / self.Rb[0]
             yield domain, boundary, axis
-
-    def Rb_fn(self, theta):
-        basis = torch.cos(torch.as_tensor([i * theta for i in range(self._mpol)]))
-        return (self.Rb * basis).sum()
-
-    def Zb_fn(self, theta):
-        basis = torch.sin(torch.as_tensor([i * theta for i in range(self._mpol)]))
-        return (self.Zb * basis).sum()
-
-    def update_axis(self, axis_guess):
-        #  Axis should have Za=0 by symmetry
-        self._Ra = axis_guess[0]
 
     def eps(self, x: Tensor, psi: Tensor, reduction: Optional[str] = "mean") -> Tensor:
         assert reduction in ("mean", None)
@@ -678,6 +684,257 @@ class GradShafranovEquilibrium(Equilibrium):
             if psi is not None:
                 pi_half = int(xx.shape[1] / 4)
                 ax.text(xx[i][pi_half], yy[i][pi_half], f"{psi[i].item():.3f}")
+        ax.axis("equal")
+
+        return ax
+
+
+class InverseGradShafranovEquilibrium(Equilibrium):
+    """The default case is a DSHAPE equilibrium as in the original VMEC paper."""
+
+    def __init__(
+        self,
+        p: Tuple[float] = (1.6e3, -2 * 1.6e3, 1.6e3),
+        iota: Tuple[float] = (1, -0.67),
+        Rb: Tuple[float] = (3.51, 1.0, 0.106),
+        Zb: Tuple[float] = (0, 1.47, -0.16),
+        Ra: float = 3.51,
+        Za: float = 0.0,
+        phi_edge: float = 1,
+        wout_path: Optional[str] = None,
+        is_solovev: Optional[bool] = False,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+
+        #  Pressure and iota profile
+        self.p = torch.as_tensor(p)
+        self.iota = torch.as_tensor(iota)
+
+        #  Boundary definition
+        assert len(Rb) == len(Zb)
+        self.Rb = torch.as_tensor(Rb)
+        self.Zb = torch.as_tensor(Zb)
+
+        #  Initial guess for the axis
+        self.Ra = Ra
+        self.Za = Za
+
+        #  Running axis location
+        self._Ra = Ra
+        self._Za = Za
+
+        #  Boundary condition on phi (i.e., phi at the VMEC LCFS)
+        self.phi_edge = phi_edge
+
+        #  VMEC wout file
+        self.wout_path = wout_path
+
+        #  Number of collocation points in the poloidal direction
+        #  TODO: add as input params
+        self.ntheta = 32
+
+        #  Is a Solov'ev equilibrium?
+        self.is_solovev = is_solovev
+
+        #  Normalized version is not supported for now
+        assert self.normalized == False
+        self._pde_closure_ = None
+        self._boundary_closure_ = None
+        self._axis_closure_ = None
+
+    @classmethod
+    def from_vmec(cls, wout_path, **kwargs):
+        """
+        Instatiate Equilibrium from VMEC wout file.
+
+        Example:
+
+        >>> from physics import InverseGradShafranovEquilibrium
+        >>> equi = InverseGradShafranovEquilibrium.from_vmec("data/wout_DSHAPE.nc")
+        >>> equi.phi_edge
+        1.0
+        """
+
+        wout = get_wout(wout_path)
+
+        ns = wout["ns"][:].data.item()
+
+        pressure = wout["am"][:].data
+        pressure = pressure[pressure != 0].tolist()
+        iota = wout["ai"][:].data
+        iota = iota[iota != 0].tolist()
+
+        Rb = wout["rmnc"][-1].data
+        Zb = wout["zmns"][-1].data
+
+        #  Remove trailing zeros in boundary definition
+        Rb = Rb[Rb != 0]
+        Zb = Zb[: len(Rb)]
+        Rb, Zb = map(tuple, (Rb, Zb))
+
+        Ra = wout["raxis_cc"][:].data.item()
+        Za = wout["zaxis_cs"][:].data.item()
+
+        phi_edge = wout["phi"][-1].data.item()
+
+        return cls(
+            p=pressure,
+            iota=iota,
+            Rb=Rb,
+            Zb=Zb,
+            Ra=Ra,
+            Za=Za,
+            phi_edge=phi_edge,
+            wout_path=wout_path,
+            ndomain=ns,
+            **kwargs,
+        )
+
+    def __iter__(self):
+
+        #  Use equally spaced grid to compute volume averaged quantities in
+        #  closure functions.
+
+        while True:
+            #  Domain collocation points
+            #  ndomain is the number of flux surfaces
+            #  TODO: add back axis and boundary
+            ns = self.ndomain
+            rho = torch.linspace(0, 1, ns + 2)[1:-1]
+            theta = (2 * torch.linspace(0, 1, self.ntheta) - 1) * math.pi
+            domain = torch.cartesian_prod(rho, theta)
+            #  Boundary collocation points
+            #  Use equally spaced grid
+            rho = torch.ones(self.ntheta)
+            boundary = torch.stack([rho, theta], dim=-1)
+            yield domain, boundary, None
+
+    def eps(self, x: Tensor, Rlz: Tensor, reduction: Optional[str] = "mean") -> Tensor:
+        raise NotImplementedError()
+
+    def _pde_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
+        R = RlZ[:, 0]
+        l = RlZ[:, 1]
+        Z = RlZ[:, 2]
+        rho = x[:, 0]
+        #  Compute the flux surface profiles
+        #  self.*_fn(s), where s = rho ** 2
+        p = self.p_fn(rho**2)
+        iota = self.iota_fn(rho**2)
+        #  Compute geometry derivatives
+        dR_dx = grad(R, x, create_graph=True)
+        Rs = dR_dx[:, 0]
+        Ru = dR_dx[:, 1]
+        dl_dx = grad(l, x, create_graph=True)
+        lu = dl_dx[:, 1]
+        dZ_dx = grad(Z, x, create_graph=True)
+        Zs = dZ_dx[:, 0]
+        Zu = dZ_dx[:, 1]
+        #  Compute jacobian
+        jacobian = R * (Ru * Zs - Zu * Rs)
+        #  Compute the magnetic fluxes derivatives
+        phis = self.phi_edge * rho / torch.pi
+        chis = iota * phis
+        #  Compute the contravariant magnetic field components
+        bsupu = chis / jacobian
+        bsupv = phis / jacobian * (1 + lu)
+        #  Compute the metric tensor elements
+        guu = Ru**2 + Zu**2
+        gus = Ru * Rs + Zu * Zs
+        gvv = R**2
+        #  Compute the covariant magnetic field components
+        bsubs = bsupu * gus
+        bsubu = bsupu * guu
+        bsubv = bsupv * gvv
+        #  Compute the covariant force components,
+        #  actually, mu0 * f_*
+        dbsubv_dx = grad(bsubv, x, create_graph=True)
+        bsubus = grad(bsubu, x, create_graph=True)[:, 0]
+        bsubvs = dbsubv_dx[:, 0]
+        bsubsu = grad(bsubs, x, create_graph=True)[:, 1]
+        ps = grad(p, x, create_graph=True)[:, 0]
+        f_rho = bsupu * bsubus + bsupv * bsubvs - bsupu * bsubsu + mu0 * ps
+        bsubvu = dbsubv_dx[:, 1]
+        f_beta = bsubvu / jacobian
+        #  Compute the squared norm of the normal basis vectors
+        grad_rho = R**2 / jacobian**2 * (Ru**2 + Zu**2)
+        grad_theta = R**2 / jacobian**2 * (Rs**2 + Zs**2)
+        beta = jacobian**2 * bsupv**2 * grad_theta
+        #  TODO: compute the full ||f|| norm:
+        #  grad_rho and beta are not orthogonal,
+        #  therefore, one should take into account all
+        #  the cross products
+        fsq = f_rho**2 * grad_rho + f_beta**2 * beta
+        #  Compute the volume-averaged ||f||2, factors missing:
+        #  1. in MKS units, there should be a 1 / mu0**2 factor
+        #  2. a 4 * pi**2 / ntheta factor due to volume-averaged integration
+        return (fsq * jacobian.abs()).sum()
+
+    def _mae_pde_loss(self, x: Tensor, RlZ: Tensor) -> Tensor:
+        #  TODO: fix me
+        return 0
+
+    def _boundary_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
+        assert torch.allclose(x[:, 0], torch.ones(x.shape[0]))
+        theta = x[:, 1]
+        Rb = torch.as_tensor([self.Rb_fn(t) for t in theta])
+        Zb = torch.as_tensor([self.Zb_fn(t) for t in theta])
+        R = RlZ[:, 0]
+        Z = RlZ[:, 2]
+        return ((R - Rb) ** 2).sum() + ((Z - Zb) ** 2).sum()
+
+    def _axis_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
+        raise NotImplementedError()
+
+    def grid(self, ns: int = None, normalized: bool = None) -> Tensor:
+
+        if ns is None:
+            ns = self.ndomain
+
+        rho = torch.linspace(0, 1, ns)
+        theta = (2 * torch.linspace(0, 1, self.ntheta) - 1) * math.pi
+        grid = torch.cartesian_prod(rho, theta)
+
+        return grid
+
+    def fluxsurfacesplot(
+        self,
+        x,
+        ax,
+        ns: Optional[int] = None,
+        nplot: Optional[int] = 10,
+        **kwargs,
+    ):
+        """
+        Plot flux surfaces on (R, Z) plane.
+
+        TODO: improve ns and nplot handling.
+        """
+
+        assert len(x.shape) == 2
+
+        if ns is None:
+            #  Infer number of flux surfaces
+            ns = int(x.shape[0] / self.ntheta)
+
+        x = x.detach()
+
+        #  Create plotting grid
+        R = x[:, 0].view(ns, -1)
+        Z = x[:, 1].view(ns, -1)
+
+        if nplot > ns:
+            nplot = ns
+
+        #  Plot nplot + 1 since the first one is the axis
+        ii = torch.linspace(0, ns - 1, nplot + 1, dtype=torch.int).tolist()
+        phis = torch.linspace(0, 1, ns)
+
+        for i in ii:
+            ax.plot(R[i], Z[i], **kwargs)
+            pi_half = int(R.shape[1] / 4)
+            ax.text(R[i][pi_half], Z[i][pi_half], f"{phis[i].item():.3f}")
         ax.axis("equal")
 
         return ax
