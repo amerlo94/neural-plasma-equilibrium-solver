@@ -144,13 +144,7 @@ class InverseGradShafranovMLP(torch.nn.Module):
     ) -> None:
         super().__init__()
 
-        #  Random Fourier features
-        #  TODO: try actual random Fourier features
-        #  TODO: consider to scale B matrix
-        # self.B = torch.nn.Parameter(
-        #     torch.randn(num_features), requires_grad=False
-        # ).view(-1, num_features)
-        # self.B = torch.clamp(self.B, min=1.0)
+        #  Fourier features
         self.num_features = num_features
         self.B = torch.arange(num_features).view(-1, num_features)
 
@@ -170,10 +164,15 @@ class InverseGradShafranovMLP(torch.nn.Module):
             torch.nn.Linear(width, num_features),
         )
 
-        #  Boundary condition
-        assert len(Rb) == len(Zb) == num_features
-        self.Rb = Rb.view(-1, num_features)
-        self.Zb = Zb.view(-1, num_features)
+        #  Boundary condition used as scaling factors
+        #  Use default small values in case coefficient is not defined in boundary
+        pad = torch.ones(num_features) * 1e-3
+        self.Rb = pad.clone()
+        self.Rb[: len(Rb)] = Rb
+        self.Rb = self.Rb.view(-1, num_features)
+        self.Zb = pad.clone()
+        self.Zb[: len(Zb)] = Zb
+        self.Zb = self.Zb.view(-1, num_features)
 
         #  Initialize layers
         for tensor in (
