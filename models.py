@@ -173,6 +173,9 @@ class InverseGradShafranovMLP(torch.nn.Module):
         self.Zb = pad.clone()
         self.Zb[: len(Zb)] = Zb
         self.Zb = self.Zb.view(-1, num_features)
+        self.lb = torch.ones(num_features)
+        self.lb[0] = 0
+        self.lb = self.lb.view(-1, num_features)
 
         #  Initialize layers
         for tensor in (
@@ -197,11 +200,11 @@ class InverseGradShafranovMLP(torch.nn.Module):
         sinm = torch.sin(rf)
         #  Compute R, lambda and Z
         rho_factor = torch.cat([rho**m for m in range(self.num_features)], dim=-1)
-        R = self.Rb.view(-1, self.num_features) * rho_factor * (1 + self.R_branch(rho))
+        R = self.Rb * rho_factor * (1 + self.R_branch(rho))
         R = (R * cosm).sum(dim=1).view(-1, 1)
-        l = rho_factor * (1 + self.l_branch(rho))
+        l = self.lb * rho_factor * (1 + self.l_branch(rho))
         l = (l * sinm).sum(dim=1).view(-1, 1)
-        Z = self.Zb.view(-1, self.num_features) * rho_factor * (1 + self.Z_branch(rho))
+        Z = self.Zb * rho_factor * (1 + self.Z_branch(rho))
         Z = (Z * sinm).sum(dim=1).view(-1, 1)
         #  Build model output
         RlZ = torch.cat([R, l, Z], dim=-1)
