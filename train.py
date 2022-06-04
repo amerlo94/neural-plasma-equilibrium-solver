@@ -204,7 +204,7 @@ def train(
     fig, ax = plt.subplots(1, 1, tight_layout=True)
     if target == "inverse-grad-shafranov":
         #  psi_hat == RlZ
-        equi.fluxsurfacesplot(psi_hat[:, [0, 2]], ax)
+        equi.fluxsurfacesplot(psi_hat[:, [0, 2]], ax, linestyle="dashed")
     else:
         equi.fluxplot(grid, psi_hat, ax, linestyles="dashed")
     if has_analytical_solution:
@@ -217,7 +217,7 @@ def train(
     if target == "inverse-grad-shafranov" and equi.wout_path is not None:
         #  Plot VMEC flux surfaces
         rz, psi = get_flux_surfaces_from_wout(equi.wout_path)
-        equi.fluxsurfacesplot(rz, ax, ns=psi.shape[0])
+        equi.fluxsurfacesplot(rz, ax, phi=torch.linspace(0, 1, psi.shape[0]))
 
     #  Plot scatter plot
     if target == "high-beta":
@@ -250,7 +250,8 @@ if __name__ == "__main__":
         "--config",
         nargs="?",
         type=str,
-        default="configs/solovev.yaml",
+        # default="configs/solovev.yaml",
+        default="configs/inverse_dshape.yaml",
         help="Configuration file to use",
     )
     args = parser.parse_args()

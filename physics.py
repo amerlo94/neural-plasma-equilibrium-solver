@@ -902,7 +902,7 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         self,
         x,
         ax,
-        ns: Optional[int] = None,
+        phi: Optional[torch.Tensor] = None,
         nplot: Optional[int] = 10,
         **kwargs,
     ):
@@ -914,9 +914,13 @@ class InverseGradShafranovEquilibrium(Equilibrium):
 
         assert len(x.shape) == 2
 
-        if ns is None:
+        if phi is None:
             #  Infer number of flux surfaces
             ns = int(x.shape[0] / self.ntheta)
+            #  Assume flux surfaces defined on rho
+            phi = torch.linspace(0, 1, ns) ** 2
+        else:
+            ns = phi.shape[0]
 
         x = x.detach()
 
@@ -927,14 +931,18 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         if nplot > ns:
             nplot = ns
 
-        #  Plot nplot + 1 since the first one is the axis
-        ii = torch.linspace(0, ns - 1, nplot + 1, dtype=torch.int).tolist()
-        phis = torch.linspace(0, 1, ns)
+        #  Plot nplot + 1 flux surfaces equally spaced in phi
+        phi_i = torch.linspace(0, phi[-1], nplot + 1)
+        ii = []
+        for p in phi_i:
+            idx = torch.argmin((phi - p).abs())
+            ii.append(idx)
 
         for i in ii:
             ax.plot(R[i], Z[i], **kwargs)
             pi_half = int(R.shape[1] / 4)
-            ax.text(R[i][pi_half], Z[i][pi_half], f"{phis[i].item():.3f}")
+            ax.text(R[i][pi_half], Z[i][pi_half], f"{phi[i].item():.3f}")
         ax.axis("equal")
+        ax.set_prop_cycle(None)
 
         return ax

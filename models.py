@@ -140,23 +140,40 @@ class InverseGradShafranovMLP(torch.nn.Module):
         Rb,
         Zb,
         width: int = 16,
+        num_features: int = 3,
     ) -> None:
         super().__init__()
 
+        #  Random Fourier features
+        #  TODO: try actual random Fourier features
+        #  TODO: consider to scale B matrix
+        # self.B = torch.nn.Parameter(
+        #     torch.randn(num_features), requires_grad=False
+        # ).view(-1, num_features)
+        # self.B = torch.clamp(self.B, min=1.0)
+        self.num_features = num_features
+        self.B = torch.arange(num_features).view(-1, num_features)
+
         self.R_branch = torch.nn.Sequential(
-            torch.nn.Linear(2, width), torch.nn.Tanh(), torch.nn.Linear(width, 1)
+            torch.nn.Linear(1, width),
+            torch.nn.Tanh(),
+            torch.nn.Linear(width, num_features),
         )
         self.l_branch = torch.nn.Sequential(
-            torch.nn.Linear(2, width), torch.nn.Tanh(), torch.nn.Linear(width, 1)
+            torch.nn.Linear(1, width),
+            torch.nn.Tanh(),
+            torch.nn.Linear(width, num_features),
         )
         self.Z_branch = torch.nn.Sequential(
-            torch.nn.Linear(2, width), torch.nn.Tanh(), torch.nn.Linear(width, 1)
+            torch.nn.Linear(1, width),
+            torch.nn.Tanh(),
+            torch.nn.Linear(width, num_features),
         )
-        self.bias = torch.nn.Parameter(torch.zeros(2))
 
         #  Boundary condition
-        self.Rb = Rb
-        self.Zb = Zb
+        assert len(Rb) == len(Zb) == num_features
+        self.Rb = Rb.view(-1, num_features)
+        self.Zb = Zb.view(-1, num_features)
 
         #  Initialize layers
         for tensor in (
@@ -164,37 +181,29 @@ class InverseGradShafranovMLP(torch.nn.Module):
             self.Z_branch[-1].weight,
             self.l_branch[-1].weight,
         ):
-            torch.nn.init.normal_(tensor, std=3e-2)
+            torch.nn.init.normal_(tensor, std=1e-2)
         for tensor in (
             self.R_branch[-1].bias,
-            self.Z_branch[-1].bias,
             self.l_branch[-1].bias,
+            self.Z_branch[-1].bias,
         ):
             torch.nn.init.zeros_(tensor)
-        with torch.no_grad():
-            self.bias.data[0] = Rb[0]
 
     def forward(self, x: Tensor) -> Tensor:
         rho = x[:, 0].view(-1, 1)
-        #  TODO: Fix me, here we assume that the theta angles are the same in the whole domain
-        ntheta = 32
-        ns = int(x.shape[0] / ntheta)
-        theta = x[-ntheta:, 1]
-        #  Compute boundary
-        tm = torch.outer(theta, torch.arange(len(self.Rb), dtype=self.Rb.dtype))
-        costm = torch.cos(tm)
-        sintm = torch.sin(tm)
-        Rb = (costm * self.Rb).sum(dim=1)
-        Zb = (sintm * self.Zb).sum(dim=1)
-        Rb = Rb.repeat(ns).view(-1, 1)
-        Zb = Zb.repeat(ns).view(-1, 1)
-        #  Compute R, lambda and Z assuming stellarator symmetry
-        R = self.R_branch(torch.stack([x[:, 0], torch.cos(x[:, 1])], dim=-1))
-        l = self.l_branch(torch.stack([x[:, 0], torch.sin(x[:, 1])], dim=-1))
-        Z = self.Z_branch(torch.stack([x[:, 0], torch.sin(x[:, 1])], dim=-1))
+        theta = x[:, 1].view(-1, 1)
+        #  Get random Fourier Features
+        rf = theta * self.B
+        cosm = torch.cos(rf)
+        sinm = torch.sin(rf)
+        #  Compute R, lambda and Z
+        rho_factor = torch.cat([rho**m for m in range(self.num_features)], dim=-1)
+        R = self.Rb.view(-1, self.num_features) * rho_factor * (1 + self.R_branch(rho))
+        R = (R * cosm).sum(dim=1).view(-1, 1)
+        l = rho_factor * (1 + self.l_branch(rho))
+        l = (l * sinm).sum(dim=1).view(-1, 1)
+        Z = self.Zb.view(-1, self.num_features) * rho_factor * (1 + self.Z_branch(rho))
+        Z = (Z * sinm).sum(dim=1).view(-1, 1)
         #  Build model output
-        R = rho * Rb + (1 - rho) * self.bias[0] + self.Rb[1] * rho * (1 - rho) * R
-        l = l + self.bias[1]
-        Z = rho * Zb + self.Zb[1] * rho * (1 - rho) * Z
         RlZ = torch.cat([R, l, Z], dim=-1)
         return RlZ
