@@ -785,9 +785,9 @@ class InverseGSEquilibrium(Equilibrium):
             if self.symmetric:
                 theta = (torch.linspace(0, 1, ns)) * torch.pi  # theta in [0,1]
             else:
-                theta = (2 * torch.linspace(0, 1, ns + 1)[1:] - 1) * math.pi  # theta in [-pi,pi]
-            # rho = torch.sqrt(torch.linspace(0, 1, ns+2)[1:-1])
-            rho = torch.linspace(0, 1, ns + 2)[1:-1]  # ** 2
+                theta = (2 * torch.linspace(0, 1, ns + 1)[1:] - 1) * torch.pi  # theta in [-pi,pi]
+            rho = torch.sqrt(torch.linspace(0, 1, ns+2)[1:-1])
+            # rho = torch.linspace(0, 1, ns + 2)[1:-1]  # ** 2
             domain = torch.cartesian_prod(rho, theta)
 
             # boundary
@@ -795,7 +795,7 @@ class InverseGSEquilibrium(Equilibrium):
             if self.symmetric:
                 theta = (torch.linspace(0, 1, ns)) * torch.pi  # theta in [0,1]
             else:
-                theta = (2 * torch.linspace(0, 1, ns + 1)[1:] - 1) * math.pi  # theta in [-pi,pi]
+                theta = (2 * torch.linspace(0, 1, ns + 1)[1:] - 1) * torch.pi  # theta in [-pi,pi]
             rho = torch.ones_like(theta)
             boundary = torch.stack([rho, theta], dim=-1)
 
@@ -804,8 +804,8 @@ class InverseGSEquilibrium(Equilibrium):
             if self.symmetric:
                 theta = (torch.linspace(0, 1, ns)) * torch.pi  # theta in [0,pi]
             else:
-                theta = (2 * torch.linspace(0, 1, ns+1)[1:] - 1) * math.pi  # theta in [-pi,pi]
-            # theta = torch.zeros(1)
+                theta = (2 * torch.linspace(0, 1, ns+1)[1:] - 1) * torch.pi  # theta in [-pi,pi]
+
             rho = torch.zeros_like(theta)
             axis = torch.stack([rho, theta], dim=-1)
 
@@ -824,7 +824,7 @@ class InverseGSEquilibrium(Equilibrium):
         # rho = sqrt(s) = sqrt(psi/psi_0)
         p = 0
         for i, coef in enumerate(self.p):
-            p += coef * rho ** (i * 2)
+            p += coef * rho ** (i*2)
         return p
 
     def iota_fn(self, rho):
@@ -832,7 +832,7 @@ class InverseGSEquilibrium(Equilibrium):
         # rho = sqrt(s) = sqrt(psi/psi_0)
         iota = 0
         for i, coef in enumerate(self.iota):
-            iota += coef * rho ** (i * 2)
+            iota += coef * rho ** (i*2)
         return iota  # * 2 * torch.pi
 
     def _jacobian(self, R, dR_drho, dR_dtheta, dZ_drho, dZ_dtheta):
@@ -868,15 +868,16 @@ class InverseGSEquilibrium(Equilibrium):
         return flux_term  # * lambda_term
 
     def _mae_pde_loss(self, x: Tensor, cartesians: Tensor) -> Tensor:
-        return torch.zeros(1)
+        return torch.ones(1)
 
     def F_covariant_rho(self, rtheta, XZlambda):
         # DESC derived
-        # if self.symmetric:
+        # if self.symmetric:  # mirror at Z=0
         #     a = XZlambda.clone()
         #     a[range(a.shape[0]), 1] *= -1
         #     XZlambda = torch.vstack((XZlambda, a))
 
+        # torch.autograd.set_detect_anomaly(True)
         f_iota = self.iota_fn(rtheta[:, 0])
         f_p = self.p_fn(rtheta[:, 0])
         dR_drtheta = grad(XZlambda[:, 0], rtheta, create_graph=True)
@@ -893,6 +894,7 @@ class InverseGSEquilibrium(Equilibrium):
         dchi_drho = f_iota * dpsi_drho
         B_contravariant_zeta = dpsi_drho / (jacobian)
         dLambda_dtheta = grad(XZlambda[:, 2], rtheta, create_graph=True)[:, 1]
+        # dLambda_dtheta = 0
         B_contravariant_zeta = B_contravariant_zeta + B_contravariant_zeta * dLambda_dtheta
         B_contravariant_theta = dchi_drho / (jacobian)
         force_grad = B_contravariant_zeta * XZlambda[:, 0] ** 2
@@ -956,20 +958,21 @@ class InverseGSEquilibrium(Equilibrium):
         return torch.pow(F_cov_rho, 2).sum()
 
     def _pde_closure(self, x: Tensor, preds: Tensor) -> Tensor:
-        return self.F_covariant_rho(rtheta=x, XZlambda=preds)
+        if self.symmetric:  # mirror at Z=0
+            a = preds.clone()
+            a[range(a.shape[0]), 1] *= -1
+            F_quadrant_1and2 = self.F_covariant_rho(rtheta=x, XZlambda=preds)
+            F_quadrant_3and4 = self.F_covariant_rho(rtheta=x, XZlambda=a)
+            return F_quadrant_3and4 + F_quadrant_1and2
+        else:
+            return self.F_covariant_rho(rtheta=x, XZlambda=preds)
 
-    def _boundary_closure(self, x: Tensor, cartesians: Tensor) -> Tensor:
+    def _boundary_closure(self, x: Tensor, RZl: Tensor) -> Tensor:
         # theta = torch.atan2(x[:, 1], x[:, 2])
         theta = x[:, 1]  # + cartesians[:, 2]
         Rb = torch.as_tensor([self.Rb_fn(t) for t in theta])
         Zb = torch.as_tensor([self.Zb_fn(t) for t in theta])
-        return (torch.pow(Rb - cartesians[:, 0], 2) + torch.pow((Zb - cartesians[:, 1]), 2)).sum()
-
-    def _axis_closure_old(self, x: Tensor, preds: Tensor) -> Tensor:
-        # at axis (s,theta)=(0,0)
-        axis_loc = torch.Tensor([self.Ra, 0]).view(1, 2)
-        axis_loc = axis_loc.expand_as(preds[:, :-1])
-        return torch.pow(preds[:, :-1] - axis_loc, 2).sum()
+        return (torch.pow((Rb - RZl[:, 0]), 2) + torch.pow((Zb - RZl[:, 1]), 2)).sum()
 
     def _axis_closure(self, x: Tensor, RZl: Tensor) -> Tensor:
 
@@ -992,6 +995,9 @@ class InverseGSEquilibrium(Equilibrium):
         dlambda_dtheta = grad(RZl[:, 2], x, create_graph=True)[:, 1]
         dlambda_dthetarho = grad(dlambda_dtheta, x, create_graph=True)[:, 0]
         dlambda_dthetarhorho = grad(dlambda_dthetarho, x, create_graph=True)[:, 0]
+        # dlambda_dtheta = 0
+        # dlambda_dthetarho = 0
+        # dlambda_dthetarhorho = 0
         dR2_drho = grad(RZl[:, 0] ** 2, x, create_graph=True)[:, 0]
         diota_drho = grad(f_iota, x, create_graph=True)[:, 0]
         dgtheta2_drho = grad(g_theta2, x, create_graph=True)[:, 0]
@@ -1147,7 +1153,7 @@ class InverseGSEquilibrium(Equilibrium):
         return Z_loss + R_loss
 
     def ab(self):
-        theta = (2 * torch.linspace(0, 1, 100) + 1) * torch.pi
+        theta = (2 * torch.linspace(0, 1, 1000) - 1) * torch.pi
 
         Rb = torch.as_tensor([self.Rb_fn(t) for t in theta])
         Zb = torch.as_tensor([self.Zb_fn(t) for t in theta])

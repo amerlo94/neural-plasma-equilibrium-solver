@@ -140,7 +140,7 @@ class InverseGradShafranovMLP(torch.nn.Module):
     def __init__(self,
                  width: int = 16,
                  R0: float = 0.0,
-                 a = 0., b = 0.
+                 a = 1., b = 1.
                  ) -> None:
         super().__init__()
 
@@ -161,10 +161,21 @@ class InverseGradShafranovMLP(torch.nn.Module):
 
         self.forward = self.forward_
 
+    def forward__(self, x: Tensor) -> Tensor:
+        out = self.fc0(x)
+        out = self.relu(out / 2)
+        out = self.fc1(out)
+        out = self.tanh(out / 2)
+        out = self.fc2(out)
+        # a = out.clone()
+        # a[:, 1] *= -1
+        # XZlambda = torch.vstack((out, a))
+        return out
+
     def forward_(self, x: Tensor) -> Tensor:
         # x = torch.cat((
         #     x[:, 0].unsqueeze(1),
-        #     torch.sin(x[:, 1]).unsqueeze(1),
+        #     # torch.sin(x[:, 1]).unsqueeze(1),
         #     torch.cos(x[:, 1]).unsqueeze(1)
         # ), dim=1)
 
@@ -176,6 +187,15 @@ class InverseGradShafranovMLP(torch.nn.Module):
         out = self.fc1(out)
         out = self.tanh(out / 2)
         out = self.fc2(out)  # * x[:, :1]
+        # out = self.tanh2(out / 2)
+
+        # out = torch.clamp(out, max=1, min=-1)
+        # out[:, 0] = out[:, 0] * self.a
+        # out[:, 1] = out[:, 1] * self.b
+
+        # out[:, 0] = out[:, 0] * self.a + self.R0
+        # out[:, 1] = out[:, 1] * self.b
+
         out[:, 0] = out[:, 0] + self.R0
         return out
 

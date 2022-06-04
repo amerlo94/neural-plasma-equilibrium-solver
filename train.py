@@ -12,14 +12,18 @@ from plot_utils import plot_solution, plot_grid
 torch.set_default_tensor_type(torch.DoubleTensor)
 
 
-def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 420):
+def train(equilibrium: str, nepochs: int,
+          normalized: bool = False, seed: int = 42,
+          symmetric: bool = True):
 
     assert equilibrium in ("high-beta", "grad-shafranov", "inverse-grad-shafranov")
 
     torch.manual_seed(seed)
 
     #  TODO: implement me argparse or make me cleaner
-    params = {"normalized": normalized, "seed": seed}
+    params = {"normalized": normalized, "seed": seed,
+              "symmetric": symmetric}
+
     if equilibrium == "high-beta":
         equi = HighBetaEquilibrium(**params)
         params = {}
@@ -50,7 +54,9 @@ def train(equilibrium: str, nepochs: int, normalized: bool = False, seed: int = 
         model = GradShafranovMLP(**params)
     elif equilibrium == "inverse-grad-shafranov":
         equi = InverseGSEquilibrium(**params)
-        params = {"R0": equi.Ra, "a": equi.a, "b": equi.b}
+        params = {"R0": equi.Ra,
+                  "a": equi.a, "b": equi.b,
+                  }
         # params = {}
         model = InverseGradShafranovMLP(**params)
     else:
