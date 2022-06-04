@@ -1,0 +1,18 @@
+equilibrium:
+  _target_: inverse-grad-shafranov
+  p: [0.125, -0.125]
+  iota: [1]
+  Rb: [3.999, 1.026, -0.068]
+  Zb: [0, 1.58, 0.01]
+  Ra: 3.999
+  Za: 0.0
+  phi_edge: 1.0
+  wout_path: data/wout_SOLOVEV.nc
+  ndomain: 32
+
+seed: 42
+max_epochs: 200
+nbatches: 1
+log_every_n_steps: 10
+update_axis_every_n_epochs: 20
+learning_rate: 0.1
