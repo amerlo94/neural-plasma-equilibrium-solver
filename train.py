@@ -171,6 +171,9 @@ def train(
 
     #  Get solution on test collocation points on a regular grid
     x = equi.grid()
+    if target == "inverse-grad-shafranov":
+        #  Do not include axis to avoid `nan` in eps() computation
+        x = x[equi.ntheta :]
     x.requires_grad_()
     psi_hat = model(x)
 
@@ -179,7 +182,7 @@ def train(
     print(f"pde mae={pde_mae:.2e}")
 
     #  Compute the normalized averaged force
-    if target == "grad-shafranov":
+    if target == "grad-shafranov" or target == "inverse-grad-shafranov":
         eps = equi.eps(x, psi_hat)
         print(f"eps={eps:.2e}")
 
@@ -237,6 +240,14 @@ def train(
             ax,
             filled=True,
             locator=ticker.LogLocator(),
+        )
+    if target == "inverse-grad-shafranov":
+        fig, ax = plt.subplots(1, 1, tight_layout=True)
+        equi.fluxsurfacesplot(
+            psi_hat[:, [0, 2]],
+            ax,
+            scalar=equi.eps(x, psi_hat, reduction=None),
+            contourf_kwargs={"locator": ticker.LogLocator()},
         )
 
     #  Show figures

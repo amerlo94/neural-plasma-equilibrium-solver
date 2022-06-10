@@ -799,7 +799,7 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         while True:
             #  Domain collocation points
             #  ndomain is the number of flux surfaces
-            #  TODO: add back axis and boundary
+            #  TODO: add back boundary
             ns = self.ndomain
             rho = torch.linspace(0, 1, ns + 2)[1:-1]
             theta = (2 * torch.linspace(0, 1, self.ntheta) - 1) * math.pi
@@ -814,6 +814,7 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         raise NotImplementedError()
 
     def _pde_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
+        #  TODO: simplify the expression to reduce torch computational graph
         R = RlZ[:, 0]
         l = RlZ[:, 1]
         Z = RlZ[:, 2]
@@ -871,8 +872,69 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         #  2. a 4 * pi**2 / ntheta factor due to volume-averaged integration
         return (fsq * jacobian.abs()).sum()
 
+    def eps(self, x: Tensor, RlZ: Tensor, reduction: Optional[str] = "mean") -> Tensor:
+        #  TODO: include equilibrium computation in a separate method,
+        #        share it with `_pde_closure`
+        assert reduction in ("mean", None)
+        R = RlZ[:, 0]
+        l = RlZ[:, 1]
+        Z = RlZ[:, 2]
+        rho = x[:, 0]
+        #  Compute the flux surface profiles
+        #  self.*_fn(s), where s = rho ** 2
+        p = self.p_fn(rho**2)
+        iota = self.iota_fn(rho**2)
+        #  Compute geometry derivatives
+        dR_dx = grad(R, x, create_graph=True)
+        Rs = dR_dx[:, 0]
+        Ru = dR_dx[:, 1]
+        dl_dx = grad(l, x, create_graph=True)
+        lu = dl_dx[:, 1]
+        dZ_dx = grad(Z, x, create_graph=True)
+        Zs = dZ_dx[:, 0]
+        Zu = dZ_dx[:, 1]
+        #  Compute jacobian
+        jacobian = R * (Ru * Zs - Zu * Rs)
+        #  Compute the magnetic fluxes derivatives
+        phis = self.phi_edge * rho / torch.pi
+        chis = iota * phis
+        #  Compute the contravariant magnetic field components
+        bsupu = chis / jacobian
+        bsupv = phis / jacobian * (1 + lu)
+        #  Compute the metric tensor elements
+        guu = Ru**2 + Zu**2
+        gus = Ru * Rs + Zu * Zs
+        gvv = R**2
+        #  Compute the covariant magnetic field components
+        bsubs = bsupu * gus
+        bsubu = bsupu * guu
+        bsubv = bsupv * gvv
+        #  Compute the covariant force components,
+        #  actually, mu0 * f_*
+        dbsubv_dx = grad(bsubv, x, create_graph=True)
+        bsubus = grad(bsubu, x, create_graph=True)[:, 0]
+        bsubvs = dbsubv_dx[:, 0]
+        bsubsu = grad(bsubs, x, create_graph=True)[:, 1]
+        ps = grad(p, x, create_graph=True)[:, 0]
+        f_rho = bsupu * bsubus + bsupv * bsubvs - bsupu * bsubsu + mu0 * ps
+        bsubvu = dbsubv_dx[:, 1]
+        f_beta = bsubvu / jacobian
+        #  Compute the squared norm of the normal basis vectors
+        grad_rho = R**2 / jacobian**2 * (Ru**2 + Zu**2)
+        grad_theta = R**2 / jacobian**2 * (Rs**2 + Zs**2)
+        beta = jacobian**2 * bsupv**2 * grad_theta
+        #  TODO: see TODO as in `_pde_closure`
+        fsq = f_rho**2 * grad_rho + f_beta**2 * beta
+        gradpsq = (mu0 * ps) ** 2
+        if reduction is None:
+            return torch.sqrt(fsq / gradpsq)
+        if reduction == "mean":
+            return torch.sqrt(
+                (fsq * jacobian.abs()).sum() / (gradpsq * jacobian.abs()).sum()
+            )
+
     def _mae_pde_loss(self, x: Tensor, RlZ: Tensor) -> Tensor:
-        #  TODO: fix me
+        print("MAE metric has not been implemented yet for the inverse GS equilibrium")
         return 0
 
     def _boundary_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
@@ -904,6 +966,8 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         ax,
         phi: Optional[torch.Tensor] = None,
         nplot: Optional[int] = 10,
+        scalar: Optional[torch.Tensor] = None,
+        contourf_kwargs: Optional[dict] = None,
         **kwargs,
     ):
         """
@@ -942,7 +1006,16 @@ class InverseGradShafranovEquilibrium(Equilibrium):
             ax.plot(R[i], Z[i], **kwargs)
             pi_half = int(R.shape[1] / 4)
             ax.text(R[i][pi_half], Z[i][pi_half], f"{phi[i].item():.3f}")
+
+        if scalar is not None:
+            scalar = scalar.detach().view(R.shape)
+            cs = ax.contourf(R, Z, scalar, **contourf_kwargs)
+            ax.get_figure().colorbar(cs)
+
         ax.axis("equal")
         ax.set_prop_cycle(None)
+
+        ax.set_xlabel(r"$R [m]$")
+        ax.set_ylabel(r"$Z [m]$")
 
         return ax
