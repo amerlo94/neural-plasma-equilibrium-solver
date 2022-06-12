@@ -247,7 +247,6 @@ def test_get_RlZ_from_wout(wout_path, ntheta, xmn, s):
     ), f"mae={((x[rho_idx] - vmec_x[phi_idx])/vmec_x[phi_idx]).abs().mean():.2e} at rho={rho:.2f}"
 
 
-#  TODO: compare force with pressure gradient
 @pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc", "data/wout_SOLOVEV.nc"))
 @pytest.mark.parametrize("ntheta", (32,))
 def test_inverse_grad_shafranov_pde_closure(wout_path, ntheta):

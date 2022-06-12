@@ -703,6 +703,7 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         phi_edge: float = 1,
         wout_path: Optional[str] = None,
         is_solovev: Optional[bool] = False,
+        ntheta: Optional[int] = 32,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -731,8 +732,7 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         self.wout_path = wout_path
 
         #  Number of collocation points in the poloidal direction
-        #  TODO: add as input params
-        self.ntheta = 32
+        self.ntheta = ntheta
 
         #  Is a Solov'ev equilibrium?
         self.is_solovev = is_solovev
@@ -799,9 +799,9 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         while True:
             #  Domain collocation points
             #  ndomain is the number of flux surfaces
-            #  TODO: add back boundary
+            #  Avoid to compute loss on axis due to coordinate singularity
             ns = self.ndomain
-            rho = torch.linspace(0, 1, ns + 2)[1:-1]
+            rho = torch.linspace(0, 1, ns + 1)[1:]
             theta = (2 * torch.linspace(0, 1, self.ntheta) - 1) * math.pi
             domain = torch.cartesian_prod(rho, theta)
             #  Boundary collocation points
@@ -996,7 +996,7 @@ class InverseGradShafranovEquilibrium(Equilibrium):
             nplot = ns
 
         #  Plot nplot + 1 flux surfaces equally spaced in phi
-        phi_i = torch.linspace(0, phi[-1], nplot + 1)
+        phi_i = torch.linspace(0, phi[-1].item(), nplot + 1)
         ii = []
         for p in phi_i:
             idx = torch.argmin((phi - p).abs())

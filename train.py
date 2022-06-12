@@ -206,8 +206,8 @@ def train(
     #  Plot magnetic flux
     fig, ax = plt.subplots(1, 1, tight_layout=True)
     if target == "inverse-grad-shafranov":
-        #  psi_hat == RlZ
-        equi.fluxsurfacesplot(psi_hat[:, [0, 2]], ax, linestyle="dashed")
+        RlZ_hat = model(grid)
+        equi.fluxsurfacesplot(RlZ_hat[:, [0, 2]], ax, linestyle="dashed")
     else:
         equi.fluxplot(grid, psi_hat, ax, linestyles="dashed")
     if has_analytical_solution:
@@ -247,6 +247,7 @@ def train(
             psi_hat[:, [0, 2]],
             ax,
             scalar=equi.eps(x, psi_hat, reduction=None),
+            phi=x[:: equi.ntheta, 0] ** 2,
             contourf_kwargs={"locator": ticker.LogLocator()},
         )
 
@@ -261,8 +262,7 @@ if __name__ == "__main__":
         "--config",
         nargs="?",
         type=str,
-        # default="configs/solovev.yaml",
-        default="configs/inverse_dshape.yaml",
+        default="configs/solovev.yaml",
         help="Configuration file to use",
     )
     args = parser.parse_args()
