@@ -964,6 +964,7 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         self,
         x,
         ax,
+        interpolation: Optional[str] = None,
         phi: Optional[torch.Tensor] = None,
         nplot: Optional[int] = 10,
         scalar: Optional[torch.Tensor] = None,
@@ -977,6 +978,7 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         """
 
         assert len(x.shape) == 2
+        assert interpolation in (None, "linear")
 
         if phi is None:
             #  Infer number of flux surfaces
@@ -985,6 +987,7 @@ class InverseGradShafranovEquilibrium(Equilibrium):
             phi = torch.linspace(0, 1, ns) ** 2
         else:
             ns = phi.shape[0]
+            phi = phi.detach()
 
         x = x.detach()
 
@@ -996,16 +999,36 @@ class InverseGradShafranovEquilibrium(Equilibrium):
             nplot = ns
 
         #  Plot nplot + 1 flux surfaces equally spaced in phi
-        phi_i = torch.linspace(0, phi[-1].item(), nplot + 1)
-        ii = []
-        for p in phi_i:
-            idx = torch.argmin((phi - p).abs())
-            ii.append(idx)
-
-        for i in ii:
-            ax.plot(R[i], Z[i], **kwargs)
+        phi_ii = torch.linspace(0, phi[-1].item(), nplot + 1)
+        for p in phi_ii:
+            if interpolation is None:
+                #  Use closest available flux surface
+                idx = torch.argmin((phi - p).abs())
+                R_i = R[idx]
+                Z_i = Z[idx]
+                phi_i = phi[idx]
+            elif interpolation == "linear":
+                #  Perform linear interpolation
+                idx_l = torch.argmin(torch.relu(p - phi))
+                idx_u = idx_l + 1
+                phi_i = p
+                R_i = R[idx_l]
+                Z_i = Z[idx_l]
+                if idx_l != len(phi) - 1:
+                    R_i += (
+                        (p - phi[idx_l])
+                        / (phi[idx_u] - phi[idx_l])
+                        * (R[idx_u] - R[idx_l])
+                    )
+                    Z_i += (
+                        (p - phi[idx_l])
+                        / (phi[idx_u] - phi[idx_l])
+                        * (Z[idx_u] - Z[idx_l])
+                    )
+            #  Plot
+            ax.plot(R_i, Z_i, **kwargs)
             pi_half = int(R.shape[1] / 4)
-            ax.text(R[i][pi_half], Z[i][pi_half], f"{phi[i].item():.3f}")
+            ax.text(R_i[pi_half], Z_i[pi_half], f"{phi_i.item():.3f}")
 
         if scalar is not None:
             scalar = scalar.detach().view(R.shape)

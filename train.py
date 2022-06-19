@@ -207,7 +207,9 @@ def train(
     fig, ax = plt.subplots(1, 1, tight_layout=True)
     if target == "inverse-grad-shafranov":
         RlZ_hat = model(grid)
-        equi.fluxsurfacesplot(RlZ_hat[:, [0, 2]], ax, linestyle="dashed")
+        equi.fluxsurfacesplot(
+            RlZ_hat[:, [0, 2]], ax, linestyle="dashed", interpolation="linear"
+        )
     else:
         equi.fluxplot(grid, psi_hat, ax, linestyles="dashed")
     if has_analytical_solution:
@@ -220,7 +222,9 @@ def train(
     if target == "inverse-grad-shafranov" and equi.wout_path is not None:
         #  Plot VMEC flux surfaces
         rz, psi = get_flux_surfaces_from_wout(equi.wout_path)
-        equi.fluxsurfacesplot(rz, ax, phi=torch.linspace(0, 1, psi.shape[0]))
+        equi.fluxsurfacesplot(
+            rz, ax, phi=torch.linspace(0, 1, psi.shape[0]), interpolation="linear"
+        )
 
     #  Plot scatter plot
     if target == "high-beta":
