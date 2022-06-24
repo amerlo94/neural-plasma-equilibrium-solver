@@ -857,16 +857,19 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         ps = grad(p, x, create_graph=True)[:, 0]
         f_rho = bsupu * bsubus + bsupv * bsubvs - bsupu * bsubsu + mu0 * ps
         bsubvu = dbsubv_dx[:, 1]
-        f_beta = bsubvu / jacobian
-        #  Compute the squared norm of the normal basis vectors
+        f_theta = bsubvu * bsupv
+        #  Compute the squared norm of the contravariant metric tensor
+        #  grad_rho**2 == gsupss
+        #  grad_theta**2 == gsupuu
         grad_rho = R**2 / jacobian**2 * (Ru**2 + Zu**2)
         grad_theta = R**2 / jacobian**2 * (Rs**2 + Zs**2)
-        beta = jacobian**2 * bsupv**2 * grad_theta
-        #  TODO: compute the full ||f|| norm:
-        #  grad_rho and beta are not orthogonal,
-        #  therefore, one should take into account all
-        #  the cross products
-        fsq = f_rho**2 * grad_rho + f_beta**2 * beta
+        gsupsu = R**2 / jacobian**2 * (Rs * Ru + Zs * Zu)
+        #  Compute the squared L2-norm of F
+        fsq = (
+            f_rho**2 * grad_rho
+            + f_theta**2 * grad_theta
+            + 2 * f_rho * f_theta * gsupsu
+        )
         #  Compute the volume-averaged ||f||2, factors missing:
         #  1. in MKS units, there should be a 1 / mu0**2 factor
         #  2. a 4 * pi**2 / ntheta factor due to volume-averaged integration
@@ -918,13 +921,17 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         ps = grad(p, x, create_graph=True)[:, 0]
         f_rho = bsupu * bsubus + bsupv * bsubvs - bsupu * bsubsu + mu0 * ps
         bsubvu = dbsubv_dx[:, 1]
-        f_beta = bsubvu / jacobian
-        #  Compute the squared norm of the normal basis vectors
+        f_theta = bsubvu * bsupv
+        #  Compute the squared norm of the contravariant metric tensor
         grad_rho = R**2 / jacobian**2 * (Ru**2 + Zu**2)
         grad_theta = R**2 / jacobian**2 * (Rs**2 + Zs**2)
-        beta = jacobian**2 * bsupv**2 * grad_theta
-        #  TODO: see TODO as in `_pde_closure`
-        fsq = f_rho**2 * grad_rho + f_beta**2 * beta
+        gsupsu = R**2 / jacobian**2 * (Rs * Ru + Zs * Zu)
+        #  Compute the squared L2-norm of F
+        fsq = (
+            f_rho**2 * grad_rho
+            + f_theta**2 * grad_theta
+            + 2 * f_rho * f_theta * gsupsu
+        )
         gradpsq = (mu0 * ps) ** 2
         if reduction is None:
             return torch.sqrt(fsq / gradpsq)
