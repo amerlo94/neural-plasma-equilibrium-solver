@@ -70,18 +70,6 @@ def plot_boundary_3D():
     print(theta[0] / np.pi * 180, "\t<= theta <=\t", theta[-1] / np.pi * 180)
     print(zeta[0] / np.pi * 180, "\t<= zeta  <=\t", zeta[-1] / np.pi * 180)
 
-    def get_fourier_basis(theta, zeta, n: int, m: int, nfp: int):
-        if m >= 0:
-            if n >= 0:
-                return cos(abs(m) * theta) * cos(abs(n) * nfp * zeta)
-            else:
-                return cos(abs(m) * theta) * sin(abs(n) * nfp * zeta)
-        else:
-            if n >= 0:
-                return sin(abs(m) * theta) * cos(abs(n) * nfp * zeta)
-            else:
-                return sin(abs(m) * theta) * sin(abs(n) * nfp * zeta)
-
 
     def b_fn(theta, zeta, xb):
         x_boundary = np.array([

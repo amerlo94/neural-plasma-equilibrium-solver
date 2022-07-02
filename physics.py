@@ -1109,4 +1109,33 @@ class Inverse3DMHD(Equilibrium):
     def eps(self, x: Tensor, Rlz: Tensor, reduction: Optional[str] = "mean") -> Tensor:
         raise NotImplementedError()
 
-
+    def _pde_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
+        R = RlZ[:, 0]
+        l = RlZ[:, 1]
+        Z = RlZ[:, 2]
+        rho = x[:, 0]
+        zeta = x[:, 2]
+        #  Compute the flux surface profiles
+        #  self.*_fn(s), where s = rho ** 2
+        p = self.p_fn(rho ** 2)
+        iota = self.iota_fn(rho ** 2)
+        dR_dx = grad(R, x, create_graph=True)
+        Rs = dR_dx[:, 0]
+        Ru = dR_dx[:, 1]
+        Rv = dR_dx[:, 2]
+        dl_dx = grad(l, x, create_graph=True)
+        lu = dl_dx[:, 1]
+        lv = dl_dx[:, 2]
+        dZ_dx = grad(Z, x, create_graph=True)
+        Zs = dZ_dx[:, 0]
+        Zu = dZ_dx[:, 1]
+        Zv = dZ_dx[:, 2]
+        #  Compute jacobian
+        jacobian = R * (Ru * Zs - Zu * Rs)
+        #  Compute the magnetic fluxes derivatives
+        phis = self.phi_edge * rho / torch.pi
+        chis = iota * phis
+        bsupu = 1 / jacobian * (chis - phis * lv)
+        bsupv = phis / jacobian * (1 + lu)
+        #  Compute the metric tensor elements
+        guu = Ru ** 2 + R ** 2 * 0

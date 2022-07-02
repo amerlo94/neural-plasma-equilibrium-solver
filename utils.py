@@ -1,7 +1,8 @@
 """Utility functions."""
 
 import math
-from typing import Optional, Union
+# from functools import cache
+from typing import Optional, Union, List, Tuple
 
 import netCDF4
 import numpy as np
@@ -82,7 +83,7 @@ def get_flux_surfaces_from_wout(wout_path: str):
     return torch.stack([R.view(-1), Z.view(-1)], dim=-1), chi
 
 
-def ift(
+def ift_2D(
     xm: Tensor,
     basis: str,
     ntheta: Optional[Union[int, Tensor]] = 40,
@@ -110,6 +111,127 @@ def ift(
     #  Multiple flux surfaces
     tm = tm[None, ...]
     return torch.einsum("stm,sm->st", tm, xm).contiguous()
+
+
+# @cache
+def get_fourier_basis(
+    mpol: int,
+    ntor: int,
+    ntheta: int,
+    nzeta: int,
+    endpoint: bool,
+    num_field_period: int,
+    dtype: torch.dtype,
+    device: torch.device,
+):
+    """Compute and cache the Fourier basis."""
+
+    poloidal_modes = torch.arange(0, mpol + 1, dtype=dtype)[:, None]
+    toroidal_modes = torch.arange(-ntor, ntor + 1, dtype=dtype)[None, :]
+
+    thetas = np.linspace(0, 2 * math.pi, ntheta, endpoint=endpoint, dtype=dtype)
+    phis = np.linspace(
+        0, 2 * math.pi / num_field_period, nzeta, endpoint=endpoint, dtype=dtype
+    )
+
+    costzmn = torch.empty(ntheta, nzeta, mpol + 1, 2 * ntor + 1, dtype=dtype)
+    sintzmn = torch.empty(ntheta, nzeta, mpol + 1, 2 * ntor + 1, dtype=dtype)
+
+    for i, theta in enumerate(thetas):
+        for j, phi in enumerate(phis):
+            costzmn[i, j] = torch.cos(
+                poloidal_modes * theta - num_field_period * toroidal_modes * phi
+            )
+            sintzmn[i, j] = torch.sin(
+                poloidal_modes * theta - num_field_period * toroidal_modes * phi
+            )
+
+    costzmn = costzmn.to(device)
+    sintzmn = sintzmn.to(device)
+
+    return costzmn[None, ...], sintzmn[None, ...]
+
+
+def ift(
+    tensors: Union[List[Tensor], Tuple[Tensor]],
+    ntheta: Optional[int] = None,
+    nzeta: Optional[int] = None,
+    endpoint: Optional[bool] = False,
+    num_field_period: Optional[int] = 5,
+):
+    """
+    Inverse Fourier transform.
+
+    Examples:
+        >>> from utils import ift
+        >>> tensor = torch.rand(1, 2, 3)
+        >>> ift((tensor, None)).size()
+        torch.Size([1, 3, 3])
+
+        >>> ift((tensor, None), ntheta=40, nzeta=36).size()
+        torch.Size([1, 40, 36])
+
+        >>> out = ift((tensor, None))
+        >>> out[0, 0, 0] == tensor.sum()
+        tensor(True)
+
+    TODO-1(@amerlo): improv function signature
+    TODO-1(@amerlo): time me and optimize me (this should be feasible with cartesian product)
+    TODO-1(@amerlo): does it make sense to make it a class?
+    TODO-1(@amerlo): add documentation.
+    """
+
+    assert len(tensors) == 2
+    assert not (tensors[0] is None and tensors[1] is None)
+
+    for tensor in tensors:
+        if tensor is not None:
+            assert (
+                len(tensor.shape) == 3
+            ), "Input tensor should be a tensor of (num_samples, poloidal_modes, toroidal_modes)."
+
+    cosmn = tensors[0]
+    sinmn = tensors[1]
+
+    if cosmn is not None and sinmn is not None:
+        assert cosmn.shape == sinmn.shape
+
+    #  Select tensor as reference
+    tensor = cosmn if cosmn is not None else sinmn
+
+    mpol = tensor.size(1) - 1
+    ntor = int((tensor.size(2) - 1) / 2)
+
+    dtype = tensor.dtype
+    device = tensor.device
+
+    if ntheta is None:
+        ntheta = 2 * mpol + 1
+    if nzeta is None:
+        nzeta = 2 * ntor + 1
+
+    costzmn, sintzmn = get_fourier_basis(
+        mpol,
+        ntor,
+        ntheta,
+        nzeta,
+        endpoint,
+        num_field_period,
+        dtype=dtype,
+        device=device,
+    )
+
+    if cosmn is not None and sinmn is None:
+        return torch.einsum("stzmn,smn->stz", costzmn, cosmn).contiguous()
+
+    if sinmn is not None and cosmn is None:
+        return torch.einsum("stzmn,smn->stz", sintzmn, sinmn).contiguous()
+
+    return (
+        torch.einsum("stzmn,smn->stz", costzmn, cosmn)
+        + torch.einsum("stzmn,smn->stz", sintzmn, sinmn)
+    ).contiguous()
+
 
 
 def get_solovev_boundary(
