@@ -250,12 +250,17 @@ def train(
         equi.fluxsurfacesplot(
             psi_hat[:, [0, 2]],
             ax,
-            scalar=equi.eps(x, psi_hat, reduction=None),
+            #scalar=equi.eps(x, psi_hat, reduction=None),
+
             phi=x[:: equi.ntheta, 0] ** 2,
             contourf_kwargs={"locator": ticker.LogLocator()},
         )
 
     #  Show figures
+    ax.set_xlabel("R [m]")
+    ax.set_ylabel("Z [m]")
+    ax.set_xlim(-1.75, 1.75)
+    ax.set_ylim(2., 6.)
     plt.show()
 
 
@@ -266,7 +271,7 @@ if __name__ == "__main__":
         "--config",
         nargs="?",
         type=str,
-        default="configs/solovev.yaml",
+        default="configs/inverse_dshape.yaml",
         help="Configuration file to use",
     )
     args = parser.parse_args()
