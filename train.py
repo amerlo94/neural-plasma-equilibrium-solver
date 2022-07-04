@@ -15,6 +15,7 @@ from physics import (
     HighBetaEquilibrium,
     GradShafranovEquilibrium,
     InverseGradShafranovEquilibrium,
+    Inverse3DMHD
 )
 from utils import log_gradients, mae, get_flux_surfaces_from_wout
 
@@ -49,6 +50,13 @@ def get_equilibrium_and_model(**equi_kws):
 
     if target == "inverse-grad-shafranov":
         equi = InverseGradShafranovEquilibrium(**_equi_kws)
+        if not equi.normalized:
+            model_kws = {"Rb": equi.Rb, "Zb": equi.Zb}
+        model = InverseGradShafranovMLP(**model_kws)
+        return equi, model
+
+    if target == "inverse-3d-mhd":
+        equi = Inverse3DMHD(**_equi_kws)
         if not equi.normalized:
             model_kws = {"Rb": equi.Rb, "Zb": equi.Zb}
         model = InverseGradShafranovMLP(**model_kws)

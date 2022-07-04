@@ -1,0 +1,18 @@
+equilibrium:
+  _target_: inverse-3d-mhd
+  p: [3400, -6800, 3400]
+  iota: [0.5, 1.5]
+#  Rb: [3.51, 1.0, 0.106]
+#  Zb: [0, 1.47, -0.16]
+#  Ra: 10
+#  Za: 0.0
+  phi_edge: 1.0
+  wout_path: data/wout_DSHAPE.nc
+#  ndomain: 32
+
+seed: 42
+max_epochs: 100
+nbatches: 1
+log_every_n_steps: 10
+update_axis_every_n_epochs: 20
+learning_rate: 0.1

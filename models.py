@@ -209,3 +209,36 @@ class InverseGradShafranovMLP(torch.nn.Module):
         #  Build model output
         RlZ = torch.cat([R, l, Z], dim=-1)
         return RlZ
+
+
+class Inverse3DMHDMLP(torch.nn.Module):
+    def __init__(
+        self,
+        Rb,
+        Zb,
+        width: int = 16,
+        num_features: int = 3,
+    ) -> None:
+        super().__init__()
+
+        #  Fourier features
+        self.num_features = num_features
+        self.B = torch.arange(num_features).view(-1, num_features)
+
+        self.R_branch = torch.nn.Sequential(
+            torch.nn.Linear(1, width),
+            torch.nn.Tanh(),
+            torch.nn.Linear(width, num_features),
+        )
+        self.l_branch = torch.nn.Sequential(
+            torch.nn.Linear(1, width),
+            torch.nn.Tanh(),
+            torch.nn.Linear(width, num_features),
+        )
+        self.Z_branch = torch.nn.Sequential(
+            torch.nn.Linear(1, width),
+            torch.nn.Tanh(),
+            torch.nn.Linear(width, num_features),
+        )
+
+        pad = torch.ones(num_features)

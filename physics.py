@@ -1,4 +1,5 @@
 import math
+import numpy as np
 from typing import Optional, Tuple
 
 import torch
@@ -809,9 +810,6 @@ class InverseGradShafranovEquilibrium(Equilibrium):
             boundary = torch.stack([rho, theta], dim=-1)
             yield domain, boundary, None
 
-    def eps(self, x: Tensor, Rlz: Tensor, reduction: Optional[str] = "mean") -> Tensor:
-        raise NotImplementedError()
-
     def _pde_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
         #  TODO: simplify the expression to reduce torch computational graph
         R = RlZ[:, 0]
@@ -856,16 +854,19 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         ps = grad(p, x, create_graph=True)[:, 0]
         f_rho = bsupu * bsubus + bsupv * bsubvs - bsupu * bsubsu + mu0 * ps
         bsubvu = dbsubv_dx[:, 1]
-        f_beta = bsubvu / jacobian
-        #  Compute the squared norm of the normal basis vectors
+        f_theta = bsubvu * bsupv
+        #  Compute the squared norm of the contravariant metric tensor
+        #  grad_rho**2 == gsupss
+        #  grad_theta**2 == gsupuu
         grad_rho = R ** 2 / jacobian ** 2 * (Ru ** 2 + Zu ** 2)
         grad_theta = R ** 2 / jacobian ** 2 * (Rs ** 2 + Zs ** 2)
-        beta = jacobian ** 2 * bsupv ** 2 * grad_theta
-        #  TODO: compute the full ||f|| norm:
-        #  grad_rho and beta are not orthogonal,
-        #  therefore, one should take into account all
-        #  the cross products
-        fsq = f_rho ** 2 * grad_rho + f_beta ** 2 * beta
+        gsupsu = R ** 2 / jacobian ** 2 * (Rs * Ru + Zs * Zu)
+        #  Compute the squared L2-norm of F
+        fsq = (
+                f_rho ** 2 * grad_rho
+                + f_theta ** 2 * grad_theta
+                + 2 * f_rho * f_theta * gsupsu
+        )
         #  Compute the volume-averaged ||f||2, factors missing:
         #  1. in MKS units, there should be a 1 / mu0**2 factor
         #  2. a 4 * pi**2 / ntheta factor due to volume-averaged integration
@@ -917,13 +918,17 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         ps = grad(p, x, create_graph=True)[:, 0]
         f_rho = bsupu * bsubus + bsupv * bsubvs - bsupu * bsubsu + mu0 * ps
         bsubvu = dbsubv_dx[:, 1]
-        f_beta = bsubvu / jacobian
-        #  Compute the squared norm of the normal basis vectors
+        f_theta = bsubvu * bsupv
+        #  Compute the squared norm of the contravariant metric tensor
         grad_rho = R ** 2 / jacobian ** 2 * (Ru ** 2 + Zu ** 2)
         grad_theta = R ** 2 / jacobian ** 2 * (Rs ** 2 + Zs ** 2)
-        beta = jacobian ** 2 * bsupv ** 2 * grad_theta
-        #  TODO: see TODO as in `_pde_closure`
-        fsq = f_rho ** 2 * grad_rho + f_beta ** 2 * beta
+        gsupsu = R ** 2 / jacobian ** 2 * (Rs * Ru + Zs * Zu)
+        #  Compute the squared L2-norm of F
+        fsq = (
+                f_rho ** 2 * grad_rho
+                + f_theta ** 2 * grad_theta
+                + 2 * f_rho * f_theta * gsupsu
+        )
         gradpsq = (mu0 * ps) ** 2
         if reduction is None:
             return torch.sqrt(fsq / gradpsq)
@@ -1077,6 +1082,9 @@ class Inverse3DMHD(Equilibrium):
         self.iota = torch.as_tensor(iota)
         self.nfp = nfp
 
+        self.Rb = Rb
+        self.Zb = Zb
+
         # axis initial guess
         self.Ra = Ra
         self.Za = Za
@@ -1098,6 +1106,7 @@ class Inverse3DMHD(Equilibrium):
             # domain
             rho = torch.linspace(0, 1, ns + 1)[1:]  # radial coordinate
             theta = (2 * torch.linspace(0, 1, self.ntheta) - 1) * math.pi  # poloidal coordinate
+            # in symmetric case ζ ∈ [0, π/NFP), non-symmetric ζ ∈ [0, 2π/NFP)
             zeta = (torch.linspace(0, 1, self.nzeta)) * 2 * math.pi / self.nfp
             domain = torch.cartesian_prod(rho, theta, zeta)
 
@@ -1105,6 +1114,29 @@ class Inverse3DMHD(Equilibrium):
             rho = torch.ones(self.ntheta)
             boundary = torch.cartesian_prod(rho, theta, zeta)
             return domain, boundary, None
+
+    def b_fn(self, theta, zeta, xb):
+        #  TODO tensorize with pytorch
+
+        def get_fourier_basis(theta, zeta, n: int, m: int, nfp: int):
+            if m >= 0:
+                if n >= 0:
+                    return math.cos(abs(m) * theta) * math.cos(abs(n) * nfp * zeta)
+                else:
+                    return math.cos(abs(m) * theta) * math.sin(abs(n) * nfp * zeta)
+            else:
+                if n >= 0:
+                    return math.sin(abs(m) * theta) * math.cos(abs(n) * nfp * zeta)
+                else:
+                    return math.sin(abs(m) * theta) * math.sin(abs(n) * nfp * zeta)
+
+        x_boundary = np.array([
+            xmn * get_fourier_basis(theta=theta, zeta=zeta,
+                                    n=n, m=m, nfp=self.nfp)
+            for (m, n), xmn in xb
+        ])
+        x_sum = x_boundary.sum()
+        return x_sum
 
     def eps(self, x: Tensor, Rlz: Tensor, reduction: Optional[str] = "mean") -> Tensor:
         raise NotImplementedError()
@@ -1114,12 +1146,12 @@ class Inverse3DMHD(Equilibrium):
         l = RlZ[:, 1]
         Z = RlZ[:, 2]
         rho = x[:, 0]
-        zeta = x[:, 2]
         #  Compute the flux surface profiles
         #  self.*_fn(s), where s = rho ** 2
         p = self.p_fn(rho ** 2)
         iota = self.iota_fn(rho ** 2)
         dR_dx = grad(R, x, create_graph=True)
+        # {s,u,v} = {rho, theta, ζ}
         Rs = dR_dx[:, 0]
         Ru = dR_dx[:, 1]
         Rv = dR_dx[:, 2]
@@ -1138,4 +1170,61 @@ class Inverse3DMHD(Equilibrium):
         bsupu = 1 / jacobian * (chis - phis * lv)
         bsupv = phis / jacobian * (1 + lu)
         #  Compute the metric tensor elements
-        guu = Ru ** 2 + R ** 2 * 0
+        guu = Ru ** 2 + Zu ** 2
+        gus = Ru * Rs + Zu * Zs
+        gvs = Rv * Rs + Zv * Zs
+        gvu = Ru * Rv + Zu * Zv
+        gvv = Rv ** 2 + R ** 2 + Zv ** 2
+        #  compute covariant mag. field components
+        bsubs = bsupu * gus + bsupv * gvs
+        bsubu = bsupu * guu + bsupv * gvu
+        bsubv = bsupu * gvu + bsupv * gvv
+        #  compute mu * f_rho
+        dbsubs_dx = grad(bsubs, x, create_graph=True)
+        dbsubu_dx = grad(bsubu, x, create_graph=True)
+        dbsubv_dx = grad(bsubv, x, create_graph=True)
+        ps = grad(p, x, create_graph=True[:, 0])
+        f_rho = bsupv * (dbsubs_dx[:, 2] - dbsubv_dx[:, 0]) - \
+                bsupu * (dbsubu_dx[:, 0] - dbsubs_dx[:, 1]) - mu0 * ps
+        #  compute mu * f_beta
+        f_beta = dbsubv_dx[:, 1] - dbsubu_dx[:, 2]
+        #  compute squared norm of forces in cartesian coords
+        _theta = (Zv * Rs - Rv * Zs)
+        _zeta = (Zs * Ru - Zu * Rs)
+        _jaco_fac = 1 / (jacobian ** 2)
+        grad_rho = _jaco_fac * (R ** 2 * (Ru ** 2 + Zu ** 2) +
+                                          (Zu * Rv - Zv * Ru) ** 2)
+        grad_theta = _jaco_fac * (R ** 2 * (Zs ** 2 + Rs ** 2) + _theta ** 2)
+        grad_zeta = _jaco_fac * _zeta ** 2
+        grad_thetazeta = _jaco_fac * _zeta * _theta
+        beta = jacobian ** 2 * \
+               (grad_theta * bsupv ** 2 +
+                grad_zeta * bsupu ** 2 -
+                2 * grad_thetazeta * bsupu * bsupv)
+        fsq = f_rho ** 2 * grad_rho + f_beta ** 2 * beta
+        return (fsq * jacobian.abs()).sum()
+
+    def _mae_pde_loss(self, x: Tensor, RlZ: Tensor) -> Tensor:
+        print("MAE metric has not been implemented yet for the inverse GS equilibrium")
+        return 0
+
+    def _boundary_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
+        assert torch.allclose(x[:, 0], torch.ones(x.shape[0]))
+        theta = x[:, 1]
+        zeta = x[:, 2]
+        Rb = torch.as_tensor(
+            [self.b_fn(theta=t, zeta=ze, xb=self.Rb)
+             for t in theta for ze in zeta]
+        )
+        Zb = torch.as_tensor(
+            [self.b_fn(theta=t, zeta=ze, xb=self.Zb)
+             for t in theta for ze in zeta]
+        )
+        R = RlZ[:, 0]
+        Z = RlZ[:, 2]
+        return ((R - Rb) ** 2).sum() + ((Z - Zb) ** 2).sum()
+
+    def _axis_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
+        raise NotImplementedError()
+
+
