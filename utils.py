@@ -129,10 +129,15 @@ def get_fourier_basis(
     poloidal_modes = torch.arange(0, mpol + 1, dtype=dtype)[:, None]
     toroidal_modes = torch.arange(-ntor, ntor + 1, dtype=dtype)[None, :]
 
-    thetas = np.linspace(0, 2 * math.pi, ntheta, endpoint=endpoint, dtype=dtype)
-    phis = np.linspace(
-        0, 2 * math.pi / num_field_period, nzeta, endpoint=endpoint, dtype=dtype
-    )
+    if endpoint:
+        thetas = torch.linspace(0, 2 * math.pi, ntheta + 1, dtype=dtype)[:-1]
+        phis = torch.linspace(
+            0, 2 * math.pi / num_field_period, nzeta + 1, dtype=dtype)[:-1]
+    else:
+        thetas = torch.linspace(0, 2 * math.pi, ntheta, dtype=dtype)
+        phis = torch.linspace(
+            0, 2 * math.pi / num_field_period, nzeta, dtype=dtype
+        )
 
     costzmn = torch.empty(ntheta, nzeta, mpol + 1, 2 * ntor + 1, dtype=dtype)
     sintzmn = torch.empty(ntheta, nzeta, mpol + 1, 2 * ntor + 1, dtype=dtype)
@@ -163,6 +168,7 @@ def ift(
     Inverse Fourier transform.
 
     Examples:
+        # s, m, n
         >>> from utils import ift
         >>> tensor = torch.rand(1, 2, 3)
         >>> ift((tensor, None)).size()

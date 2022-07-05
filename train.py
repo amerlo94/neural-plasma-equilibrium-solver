@@ -10,7 +10,7 @@ import torch
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 
-from models import HighBetaMLP, GradShafranovMLP, InverseGradShafranovMLP
+from models import HighBetaMLP, GradShafranovMLP, InverseGradShafranovMLP, Inverse3DMHDMLP
 from physics import (
     HighBetaEquilibrium,
     GradShafranovEquilibrium,
@@ -58,8 +58,10 @@ def get_equilibrium_and_model(**equi_kws):
     if target == "inverse-3d-mhd":
         equi = Inverse3DMHD(**_equi_kws)
         if not equi.normalized:
-            model_kws = {"Rb": equi.Rb, "Zb": equi.Zb}
-        model = InverseGradShafranovMLP(**model_kws)
+            model_kws = {"Rb": equi.Rb, "Zb": equi.Zb,
+                         "ntheta": equi.ntheta, "nzeta": equi.nzeta,
+                         "nfp": equi.nfp}
+        model = Inverse3DMHDMLP(**model_kws)
         return equi, model
 
     raise RuntimeError("Equilibrium " + target + " is not supported")
@@ -279,7 +281,7 @@ if __name__ == "__main__":
         "--config",
         nargs="?",
         type=str,
-        default="configs/inverse_dshape.yaml",
+        default="configs/inverse_heliotron.yaml",
         help="Configuration file to use",
     )
     args = parser.parse_args()

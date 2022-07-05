@@ -1113,7 +1113,7 @@ class Inverse3DMHD(Equilibrium):
             # boundary
             rho = torch.ones(self.ntheta)
             boundary = torch.cartesian_prod(rho, theta, zeta)
-            return domain, boundary, None
+            yield domain, boundary, None
 
     def b_fn(self, theta, zeta, xb):
         #  TODO tensorize with pytorch

@@ -6,8 +6,21 @@ import matplotlib as mpl
 from matplotlib.colors import Normalize as mpl_norm
 
 
+def get_fourier_basis(theta, zeta, n: int, m: int, nfp: int):
+    if m >= 0:
+        if n >= 0:
+            return cos(abs(m) * theta) * cos(abs(n) * nfp * zeta)
+        else:
+            return cos(abs(m) * theta) * sin(abs(n) * nfp * zeta)
+    else:
+        if n >= 0:
+            return sin(abs(m) * theta) * cos(abs(n) * nfp * zeta)
+        else:
+            return sin(abs(m) * theta) * sin(abs(n) * nfp * zeta)
+
+
 def plot_boundary_2D():
-    mpol=3
+    mpol = 3
 
     def Rb_fn(theta, Rb):
         basis = np.cos([i * theta for i in range(mpol)])
@@ -33,12 +46,6 @@ def plot_boundary_2D():
             nz.append(Zb_fn(t, Zb=z))
         ax.plot(nr, nz, alpha=1, color="blue")
 
-    # [11.0, 10.623489801858733, 9.777479066043686, 9.099031132097581, 9.099031132097581,
-    #  9.777479066043686, 10.623489801858733, 11.0]
-    # z
-    # [-1.0, -0.6234898018587334, 0.22252093395631445, 0.9009688679024193, 0.9009688679024193,
-    #  0.22252093395631445, -0.6234898018587334, -1.0]
-
     plt.xlabel("R [m]")
     plt.ylabel("Z [m]")
     plt.ylim(-1.75, 1.75)
@@ -47,7 +54,6 @@ def plot_boundary_2D():
 
 
 def plot_boundary_3D():
-
     NFP = 19
 
     # ((m,n), Xmn)
@@ -69,18 +75,6 @@ def plot_boundary_3D():
 
     print(theta[0] / np.pi * 180, "\t<= theta <=\t", theta[-1] / np.pi * 180)
     print(zeta[0] / np.pi * 180, "\t<= zeta  <=\t", zeta[-1] / np.pi * 180)
-
-    def get_fourier_basis(theta, zeta, n: int, m: int, nfp: int):
-        if m >= 0:
-            if n >= 0:
-                return cos(abs(m) * theta) * cos(abs(n) * nfp * zeta)
-            else:
-                return cos(abs(m) * theta) * sin(abs(n) * nfp * zeta)
-        else:
-            if n >= 0:
-                return sin(abs(m) * theta) * cos(abs(n) * nfp * zeta)
-            else:
-                return sin(abs(m) * theta) * sin(abs(n) * nfp * zeta)
 
     def b_fn(theta, zeta, xb):
         x_boundary = np.array([
@@ -147,14 +141,6 @@ def plot_boundary_3D():
     # ax.set_zlabel('z')
     # plt.show()
 
-    # nr
-    # [2.6159999999999997, 2.7623622637137166, 3.2367444045297633, 3.957, 4.530893331756521,
-    #  4.530893331756521, 3.957, 3.2367444045297633, 2.7623622637137166, 2.6159999999999997]
-    # nz
-    # [-2.192117770473762e-16, -1.1024670267211665, -1.5023906198600527, -1.1344932789576148,
-    #  -0.39992359313888676, 0.39992359313888676, 1.1344932789576143, 1.5023906198600527,
-    #  1.1024670267211665, 2.192117770473762e-16]
 
-
-if __name__ ==  '__main__':
+if __name__ == '__main__':
     plot_boundary_3D()

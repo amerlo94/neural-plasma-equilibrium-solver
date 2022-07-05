@@ -1,9 +1,11 @@
 """Models."""
 
-from typing import Union
+from typing import Union, Tuple
 
 import torch
 from torch import Tensor
+
+from utils import get_fourier_basis
 
 
 class HighBetaMLP(torch.nn.Module):
@@ -35,12 +37,12 @@ class HighBetaMLP(torch.nn.Module):
 
 class GradShafranovMLP(torch.nn.Module):
     def __init__(
-        self,
-        width: int = 32,
-        R0: float = 1.0,
-        a: float = 1.0,
-        b: float = 1.0,
-        psi_0: float = 1.0,
+            self,
+            width: int = 32,
+            R0: float = 1.0,
+            a: float = 1.0,
+            b: float = 1.0,
+            psi_0: float = 1.0,
     ) -> None:
         super().__init__()
 
@@ -70,11 +72,11 @@ class GradShafranovMLP(torch.nn.Module):
         return self.psi_0 * self.fc2(psi_hat).view(-1)
 
     def find_x_of_psi(
-        self,
-        psi: Union[float, str],
-        initial_guess: Tensor,
-        tolerance: float = 1e-5,
-        tolerance_change: float = 1e-8,
+            self,
+            psi: Union[float, str],
+            initial_guess: Tensor,
+            tolerance: float = 1e-5,
+            tolerance_change: float = 1e-8,
     ):
         """
         Find domain value x_0 such that psi = self(x_0).
@@ -136,11 +138,11 @@ class GradShafranovMLP(torch.nn.Module):
 
 class InverseGradShafranovMLP(torch.nn.Module):
     def __init__(
-        self,
-        Rb,
-        Zb,
-        width: int = 16,
-        num_features: int = 3,
+            self,
+            Rb,
+            Zb,
+            width: int = 16,
+            num_features: int = 3,
     ) -> None:
         super().__init__()
 
@@ -179,15 +181,15 @@ class InverseGradShafranovMLP(torch.nn.Module):
 
         #  Initialize layers
         for tensor in (
-            self.R_branch[-1].weight,
-            self.Z_branch[-1].weight,
-            self.l_branch[-1].weight,
+                self.R_branch[-1].weight,
+                self.Z_branch[-1].weight,
+                self.l_branch[-1].weight,
         ):
             torch.nn.init.normal_(tensor, std=1e-2)
         for tensor in (
-            self.R_branch[-1].bias,
-            self.l_branch[-1].bias,
-            self.Z_branch[-1].bias,
+                self.R_branch[-1].bias,
+                self.l_branch[-1].bias,
+                self.Z_branch[-1].bias,
         ):
             torch.nn.init.zeros_(tensor)
 
@@ -199,7 +201,7 @@ class InverseGradShafranovMLP(torch.nn.Module):
         cosm = torch.cos(rf)
         sinm = torch.sin(rf)
         #  Compute R, lambda and Z
-        rho_factor = torch.cat([rho**m for m in range(self.num_features)], dim=-1)
+        rho_factor = torch.cat([rho ** m for m in range(self.num_features)], dim=-1)
         R = self.Rb * rho_factor * (1 + self.R_branch(rho))
         R = (R * cosm).sum(dim=1).view(-1, 1)
         l = self.lb * rho_factor * (1 + self.l_branch(rho))
@@ -213,32 +215,104 @@ class InverseGradShafranovMLP(torch.nn.Module):
 
 class Inverse3DMHDMLP(torch.nn.Module):
     def __init__(
-        self,
-        Rb,
-        Zb,
-        width: int = 16,
-        num_features: int = 3,
+            self,
+            Rb,
+            Zb,
+            ntheta: int,
+            nzeta: int,
+            nfp: int,
+            width: int = 16,
     ) -> None:
         super().__init__()
 
         #  Fourier features
-        self.num_features = num_features
-        self.B = torch.arange(num_features).view(-1, num_features)
+        # self.num_features = num_features
+        self.Rb = Rb
+        self.Zb = Zb
+        self.mode_min, self.mode_max = self._get_mn()
+        self.idx = self.mode_max - self.mode_min + 1
+
+        #  grid for fourier features
+        self.ntheta = ntheta
+        self.nzeta = nzeta
+        self.nfp = nfp
 
         self.R_branch = torch.nn.Sequential(
             torch.nn.Linear(1, width),
             torch.nn.Tanh(),
-            torch.nn.Linear(width, num_features),
+            torch.nn.Linear(width, self.idx**2),
         )
         self.l_branch = torch.nn.Sequential(
             torch.nn.Linear(1, width),
             torch.nn.Tanh(),
-            torch.nn.Linear(width, num_features),
+            torch.nn.Linear(width, self.idx**2),
         )
         self.Z_branch = torch.nn.Sequential(
             torch.nn.Linear(1, width),
             torch.nn.Tanh(),
-            torch.nn.Linear(width, num_features),
+            torch.nn.Linear(width, self.idx**2),
         )
 
-        pad = torch.ones(num_features)
+
+        pad = torch.ones(self.idx, self.idx) * 1e-3
+        self.Rb = pad.clone()
+        self.Zb = pad.clone()
+
+        for (m, n), x in Rb:
+            self.Rb[m + abs(self.mode_min), n + abs(self.mode_max)] = x
+        self.Rb = self.Rb.view(-1, self.idx)
+
+        for (m, n), x in Zb:
+            self.Zb[m + abs(self.mode_min), n + abs(self.mode_max)] = x
+        self.Zb = self.Zb.view(-1, self.idx)
+
+        self.lb = torch.ones(self.idx, self.idx)
+        self.lb[0, :] = 0
+        self.lb = self.lb.view(-1, self.idx)
+
+        for tensor in (
+                self.R_branch[-1].weight,
+                self.Z_branch[-1].weight,
+                self.l_branch[-1].weight,
+        ):
+            torch.nn.init.normal_(tensor, std=1e-2)
+        for tensor in (
+                self.R_branch[-1].bias,
+                self.l_branch[-1].bias,
+                self.Z_branch[-1].bias,
+        ):
+            torch.nn.init.zeros_(tensor)
+
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    def _get_mn(self):
+        low_m = 10
+        high_m = -10
+        low_n = 10
+        high_n = -10
+        for B in [self.Rb, self.Zb]:
+            for (m, n), x in B:
+                if m > high_m: high_m = m
+                if m < low_m: low_m = m
+                if n > high_n: high_n = n
+                if n < low_n: low_n = n
+        mode_max = max(high_m, high_n)
+        mode_min = min(low_m, low_n)
+        return mode_min, mode_max
+
+    def forward(self, x: Tensor) -> Tensor:
+        rho = x[:, 0].view(-1, 1)
+        theta = x[:, 1].view(-1, 1)
+        zeta = x[:, 2].view(-1, 1)
+        # compute R, lambda, Z
+        rho_factor = torch.cat(
+            [rho ** m for m in range(self.idx)],
+            dim=-1)
+        basis = get_fourier_basis(mpol=1,ntor=1,ntheta=self.ntheta,
+                                  nzeta=self.nzeta,endpoint=False,
+                                  num_field_period=self.nfp,
+                                  dtype=rho.dtype, device=self.device)
+        R = 0
+        return R
+
+
