@@ -58,9 +58,10 @@ def get_equilibrium_and_model(**equi_kws):
     if target == "inverse-3d-mhd":
         equi = Inverse3DMHD(**_equi_kws)
         if not equi.normalized:
-            model_kws = {"Rb": equi.Rb, "Zb": equi.Zb,
+            model_kws = {"Rb": equi.Rb, "Zb": equi.Zb, "ns": equi.ns,
                          "ntheta": equi.ntheta, "nzeta": equi.nzeta,
-                         "nfp": equi.nfp}
+                         "nfp": equi.nfp, "max_mpol": equi.max_mpol,
+                         "max_ntor": equi.max_ntor, "sym": equi.sym}
         model = Inverse3DMHDMLP(**model_kws)
         return equi, model
 
@@ -122,6 +123,8 @@ def train(
         for batch_idx, (x_domain, x_boundary, x_axis) in zip(range(nbatches), equi):
 
             x_domain.requires_grad_()
+            x_boundary.requires_grad_()
+
 
             def closure():
                 optimizer.zero_grad()

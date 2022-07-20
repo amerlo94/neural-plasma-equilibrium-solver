@@ -75,8 +75,8 @@ def get_flux_surfaces_from_wout(wout_path: str):
     wout = get_wout(wout_path)
     rmnc = torch.as_tensor(wout["rmnc"][:]).clone()
     zmns = torch.as_tensor(wout["zmns"][:]).clone()
-    R = ift(rmnc, basis="cos")
-    Z = ift(zmns, basis="sin")
+    R = ift_2D(rmnc, basis="cos")
+    Z = ift_2D(zmns, basis="sin")
     #  Return poloidal on the flux surfaces also
     chi = torch.as_tensor(wout["chi"][:]).clone()
     #  Return flux surfaces as grid
@@ -119,53 +119,88 @@ def get_fourier_basis(
     ntor: int,
     ntheta: int,
     nzeta: int,
-    endpoint: bool,
+    include_endpoint: bool,
     num_field_period: int,
     dtype: torch.dtype,
     device: torch.device,
+    grid: Optional[Tensor] = None,
 ):
-    """Compute and cache the Fourier basis."""
+    """
+    Compute and cache the Fourier basis.
+    If a grid is provided, it is assumed to be equidistant
+     i.e. at each toroidal coordinate (zeta) exists the same poloidal grid (rho, theta)
+     such that the fourier transform can be mirrored
+     to check this property run
+     (grid[(grid[:, 2] == grid[1][2]).nonzero()] == grid[(grid[:, 2] == grid[0][2]).nonzero()])[:,:, 0].sum()
+     (grid[(grid[:, 2] == grid[1][2]).nonzero()] == grid[(grid[:, 2] == grid[0][2]).nonzero()])[:,:, 1].sum()
+     (grid[(grid[:, 2] == grid[1][2]).nonzero()] == grid[(grid[:, 2] == grid[0][2]).nonzero()])[:,:, 2].sum()
+     where grid is (rho, theta, zeta) = (s, u, v) in coordinates
+    """
 
-    poloidal_modes = torch.arange(0, mpol + 1, dtype=dtype)[:, None]
-    toroidal_modes = torch.arange(-ntor, ntor + 1, dtype=dtype)[None, :]
+    poloidal_modes = torch.arange(0, mpol + 1, dtype=dtype)# [:, None]
+    toroidal_modes = torch.arange(-ntor, ntor + 1, dtype=dtype)# [None, :]
 
-    if endpoint:
-        thetas = torch.linspace(0, 2 * math.pi, ntheta + 1, dtype=dtype)[:-1]
-        phis = torch.linspace(
-            0, 2 * math.pi / num_field_period, nzeta + 1, dtype=dtype)[:-1]
+    if grid is not None:
+        #  same stencil generation method as in physics/Inverse3DMHD.__iter__
+        ntmnz = ntheta * nzeta
+        thetas = grid[:, 1]#[:ntmnz:ntheta]
+        zetas = grid[:, 2]#[:ntmnz:nzeta]
     else:
-        thetas = torch.linspace(0, 2 * math.pi, ntheta, dtype=dtype)
-        phis = torch.linspace(
-            0, 2 * math.pi / num_field_period, nzeta, dtype=dtype
-        )
+        if include_endpoint:
+            thetas = torch.linspace(0, 2 * math.pi, ntheta + 1, dtype=dtype)[:-1]
+            zetas = torch.linspace(
+                0, 2 * math.pi / num_field_period, nzeta + 1, dtype=dtype)[:-1]
+        else:
+            thetas = torch.linspace(0, 2 * math.pi, ntheta, dtype=dtype)
+            zetas = torch.linspace(
+                0, 2 * math.pi / num_field_period, nzeta, dtype=dtype
+            )
 
     costzmn = torch.empty(ntheta, nzeta, mpol + 1, 2 * ntor + 1, dtype=dtype)
     sintzmn = torch.empty(ntheta, nzeta, mpol + 1, 2 * ntor + 1, dtype=dtype)
 
+
+    #           takes t>30s!
+    # costzmn = torch.cos(
+    #     poloidal_modes[None, None, :, None] * thetas[:, None, None, None]
+    #     - num_field_period
+    #     * toroidal_modes[None, None, None, :] * zetas[None, :, None, None]
+    # )
+    #
+    # sintzmn = torch.sin(
+    #     poloidal_modes[None, None, :, None] * thetas[:, None, None, None]
+    #     - num_field_period
+    #     * toroidal_modes[None, None, None, :]
+    #     * zetas[None, :, None, None]
+    # )
+    # print("end")
+
+
     for i, theta in enumerate(thetas):
-        for j, phi in enumerate(phis):
+        for j, zeta in enumerate(zetas):
             costzmn[i, j] = torch.cos(
-                poloidal_modes * theta - num_field_period * toroidal_modes * phi
+                poloidal_modes * theta - num_field_period * toroidal_modes * zeta
             )
             sintzmn[i, j] = torch.sin(
-                poloidal_modes * theta - num_field_period * toroidal_modes * phi
+                poloidal_modes * theta - num_field_period * toroidal_modes * zeta
             )
 
     costzmn = costzmn.to(device)
     sintzmn = sintzmn.to(device)
 
-    return costzmn[None, ...], sintzmn[None, ...]
+    return costzmn, sintzmn
 
 
 def ift(
     tensors: Union[List[Tensor], Tuple[Tensor]],
     ntheta: Optional[int] = None,
     nzeta: Optional[int] = None,
-    endpoint: Optional[bool] = False,
+    grid: Optional[Tensor] = None,
+    include_endpoint: Optional[bool] = False,
     num_field_period: Optional[int] = 5,
 ):
     """
-    Inverse Fourier transform.
+    Inverse Fourier transform. assumes stellarator symmetry
 
     Examples:
         # s, m, n
@@ -217,12 +252,13 @@ def ift(
         nzeta = 2 * ntor + 1
 
     costzmn, sintzmn = get_fourier_basis(
-        mpol,
-        ntor,
-        ntheta,
-        nzeta,
-        endpoint,
-        num_field_period,
+        mpol=mpol,
+        ntor=ntor,
+        ntheta=ntheta,
+        nzeta=nzeta,
+        grid=grid,
+        include_endpoint=include_endpoint,
+        num_field_period=num_field_period,
         dtype=dtype,
         device=device,
     )
@@ -275,7 +311,7 @@ def get_solovev_boundary(
     optim = torch.optim.LBFGS([Rb], lr=1e-2)
 
     def loss_fn():
-        R = ift(Rb, basis="cos", ntheta=ntheta)
+        R = ift_2D(Rb, basis="cos", ntheta=ntheta)
         return ((R**2 - Rsq) ** 2).sum()
 
     def closure():

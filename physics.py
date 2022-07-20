@@ -1,21 +1,58 @@
 import math
 import numpy as np
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 import torch
 from torch import Tensor
 from torch.utils.data import IterableDataset
 
-from utils import ift, grad, mae, get_profile_from_wout, get_wout
+from utils import ift, ift_2D, grad, mae, get_profile_from_wout, get_wout
 
 mu0 = 4 * math.pi * 1e-7
+
+
+# class Grid:
+#     """
+#     general grid container
+#     """
+#     domain: Tensor
+#     boundary: Tensor
+#     axis: Tensor
+#     IFT: tuple
+
+
+class SymmetricGrid:
+    """
+    A stellarator-symmetric grid
+    which allows to split R into R= Rmn,c * cos(mu − nvNFP)
+    and X={λ,Z} into X = Xmn,s(s) * sin(mu − nvNFP)
+    s.t. Fourier transform requires only sin/cos terms
+    """
+    # IFT: (costzmn, sintzmn)  -  tzmn: thetazetamn
+    # IFT: (Tensor, Tensor)
+    # IFT_b: (Tensor, Tensor)
+
+    def __init__(self, domain: Tensor,
+                 boundary: Tensor,
+                 IFT: Tuple[Tensor, Tensor],
+                 axis: Optional[Tensor] = None):
+                 # IFT_b: (Tensor, Tensor)):
+
+        self.domain = domain
+        self.boundary = boundary
+        self.axis = axis
+        self.costzmn = IFT[0]
+        self.sintzmn = IFT[1]
+        # self.costzmn_b = IFT_b[1]
+        # self.sintzmn_b = IFT_b[1]
 
 
 class Equilibrium(IterableDataset):
     def __init__(
             self,
-            ndomain: int = 2500,
-            nboundary: int = 50,
+            ns: int = 50,  # radial (s) points
+            ntheta: int = 50,  # poloidal angle (u) points
+            nboundary: int = 50,  # boundary points
             normalized: bool = False,
             seed: int = 42,
     ) -> None:
@@ -23,7 +60,8 @@ class Equilibrium(IterableDataset):
         super().__init__()
 
         #  Number of collocation points to use in the domain
-        self.ndomain = ndomain
+        self.ns = ns
+        self.ntheta = ntheta
 
         #  Number of collocation points to use on the boundary
         self.nboundary = nboundary
@@ -151,6 +189,7 @@ class HighBetaEquilibrium(Equilibrium):
         self.C = C
         self.R0 = R0
         self.psi_0 = -2 * A * a ** 2 / 8
+        self.ndomain = self.ns * self.ntheta
 
     def __iter__(self):
 
@@ -431,10 +470,9 @@ class GradShafranovEquilibrium(Equilibrium):
             #  Create grid by scaling the boundary from the LCFS to the axis
             #  Achtung: these are not flux surfaces!
             domain = []
-            ns = int(math.sqrt(self.ndomain))
-            hs = torch.rand(ns, generator=generator) ** 2
+            hs = torch.rand(self.ns, generator=generator) ** 2
             for s in hs:
-                theta = (2 * torch.rand(ns, generator=generator) - 1) * math.pi
+                theta = (2 * torch.rand(self.ntheta, generator=generator) - 1) * math.pi
                 Rb = torch.as_tensor([self.Rb_fn(t) for t in theta])
                 Zb = torch.as_tensor([self.Zb_fn(t) for t in theta])
                 R = (Rb - self._Ra) * s + self._Ra
@@ -589,7 +627,7 @@ class GradShafranovEquilibrium(Equilibrium):
     def grid(self, ns: int = None, normalized: bool = None) -> Tensor:
 
         if ns is None:
-            ns = int(math.sqrt(self.ndomain))
+            ns = self.ns
 
         if normalized is None:
             normalized = self.normalized
@@ -703,7 +741,6 @@ class InverseGradShafranovEquilibrium(Equilibrium):
             phi_edge: float = 1,
             wout_path: Optional[str] = None,
             is_solovev: Optional[bool] = False,
-            ntheta: Optional[int] = 32,
             **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -730,9 +767,6 @@ class InverseGradShafranovEquilibrium(Equilibrium):
 
         #  VMEC wout file
         self.wout_path = wout_path
-
-        #  Number of collocation points in the poloidal direction
-        self.ntheta = ntheta
 
         #  Is a Solov'ev equilibrium?
         self.is_solovev = is_solovev
@@ -800,8 +834,7 @@ class InverseGradShafranovEquilibrium(Equilibrium):
             #  Domain collocation points
             #  ndomain is the number of flux surfaces
             #  Avoid to compute loss on axis due to coordinate singularity
-            ns = self.ndomain
-            rho = torch.linspace(0, 1, ns + 1)[1:]
+            rho = torch.linspace(0, 1, self.ns + 1)[1:]
             theta = (2 * torch.linspace(0, 1, self.ntheta) - 1) * math.pi
             domain = torch.cartesian_prod(rho, theta)
             #  Boundary collocation points
@@ -956,7 +989,7 @@ class InverseGradShafranovEquilibrium(Equilibrium):
     def grid(self, ns: int = None, normalized: bool = None) -> Tensor:
 
         if ns is None:
-            ns = self.ndomain
+            ns = self.ns
 
         rho = torch.linspace(0, 1, ns)
         theta = (2 * torch.linspace(0, 1, self.ntheta) - 1) * math.pi
@@ -1057,33 +1090,46 @@ class Inverse3DMHD(Equilibrium):
             self,
             p: Tuple[float] = (3.4e3, -2 * 3.4e3, 3.4e3),
             iota: Tuple[float] = (0.5, 1.5),
-            Rb: Tuple[float] = (
-                    ((0, 0), 10.),
-                    ((1, 0), -1.),
-                    ((1, 1), -0.3),
-                    ((-1, -1), 0.3)
-            ),
-            Zb: Tuple[float] = (
-                    ((-1, 0), 1.),
-                    ((-1, 1), -0.3),
-                    ((1, -1), -0.3)
+            Rb: Tuple[tuple] = ((0., 10., 0.),  # m = 0 modes / mn: {0-1,00,01}
+                                (-0.3, -1., 0.)  # m = 1 modes / mn: {1-1,10,11}
+                                ),
+            Zb: Tuple[tuple] = (
+                    (0., 0., 0.),
+                    (-0.3, -1., 0.)
             ),
             Ra: float = 10.,
             Za: float = 0.,
             nfp: int = 19,
+            sym: bool = True,
             phi_edge: float = 1,
             wout_path: Optional[str] = None,
-            ntheta: Optional[int] = 32,
             nzeta: Optional[int] = 32,
+            # highest positive poloidal and toroidal mode numbers
+            max_mpol: Optional[int] = 1,
+            max_ntor: Optional[int] = 1,
             **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self.p = torch.as_tensor(p)
         self.iota = torch.as_tensor(iota)
         self.nfp = nfp
+        self.sym = sym  # NoQA - not symmetric boundaries not tested yet
 
-        self.Rb = Rb
-        self.Zb = Zb
+        self.max_mpol = max_mpol
+        self.max_ntor = max_ntor
+        self.poloidal_modes = torch.arange(0, max_mpol + 1)# , dtype=dtype)  # [:, None]
+        self.toroidal_modes = torch.arange(-max_ntor, max_ntor + 1)# , dtype=dtype)  # [None, :]
+        self.mpol_shape = max_mpol + 1  # maximum of first fourier-modes matrix index
+        self.ntor_shape = max_ntor * 2 + 1
+
+        self.Rb = torch.as_tensor(Rb)
+        self.Zb = torch.as_tensor(Zb)
+        # todo check if mpol_shape > self.Rb.shape[0] and same for ntor_shape
+        zero_pad = torch.nn.ZeroPad2d((0, (self.ntor_shape - self.Rb.shape[1]),
+                                       0, (self.mpol_shape - self.Rb.shape[0])))
+        self.Rb = zero_pad(self.Rb)
+        self.Zb = zero_pad(self.Zb)
+
 
         # axis initial guess
         self.Ra = Ra
@@ -1092,53 +1138,77 @@ class Inverse3DMHD(Equilibrium):
         pass
 
         self.phi_edge = phi_edge
-        self.ntheta = ntheta
         self.nzeta = nzeta
+        self.costzmn = None
+        self.sintzmn = None
 
     def __iter__(self):
 
         #  Use equally spaced grid to compute volume averaged quantities in
         #  closure functions.
 
+        # if static grid - generate only once
+
         while True:
-            ns = self.ndomain  # number of flux surfaces
 
             # domain
-            rho = torch.linspace(0, 1, ns + 1)[1:]  # radial coordinate
-            theta = (2 * torch.linspace(0, 1, self.ntheta) - 1) * math.pi  # poloidal coordinate
+            # radial coordinate, without boundary (rho=1)
+            rho = torch.linspace(0, 1, self.ns + 2)[1:-1]
+            # poloidal coordinate ∈ [-π, π)
+            theta = (2 * torch.linspace(0, 1, self.ntheta) - 1) * math.pi
             # in symmetric case ζ ∈ [0, π/NFP), non-symmetric ζ ∈ [0, 2π/NFP)
-            zeta = (torch.linspace(0, 1, self.nzeta)) * 2 * math.pi / self.nfp
+            zeta = (torch.linspace(0, 1, self.nzeta)) * math.pi / self.nfp
             domain = torch.cartesian_prod(rho, theta, zeta)
 
             # boundary
-            rho = torch.ones(self.ntheta)
+            rho = torch.ones(1)
             boundary = torch.cartesian_prod(rho, theta, zeta)
-            yield domain, boundary, None
 
-    def b_fn(self, theta, zeta, xb):
-        #  TODO tensorize with pytorch
+            # Fourier transform
+            # self.costzmn = torch.cos(
+            #     self.poloidal_modes[None, None, :, None]
+            #     * theta[:, None, None, None]
+            #     - self.nfp * self.toroidal_modes[None, None, None, :]
+            #     * zeta[None, :, None, None]
+            # )[None, :]
+            #
+            # self.sintzmn = torch.sin(
+            #     self.poloidal_modes[None, None, :, None]
+            #     * theta[:, None, None, None]
+            #     - self.nfp * self.toroidal_modes[None, None, None, :]
+            #     * zeta[None, :, None, None]
+            # )[None, :]
 
-        def get_fourier_basis(theta, zeta, n: int, m: int, nfp: int):
-            if m >= 0:
-                if n >= 0:
-                    return math.cos(abs(m) * theta) * math.cos(abs(n) * nfp * zeta)
-                else:
-                    return math.cos(abs(m) * theta) * math.sin(abs(n) * nfp * zeta)
-            else:
-                if n >= 0:
-                    return math.sin(abs(m) * theta) * math.cos(abs(n) * nfp * zeta)
-                else:
-                    return math.sin(abs(m) * theta) * math.sin(abs(n) * nfp * zeta)
 
-        x_boundary = np.array([
-            xmn * get_fourier_basis(theta=theta, zeta=zeta,
-                                    n=n, m=m, nfp=self.nfp)
-            for (m, n), xmn in xb
-        ])
-        x_sum = x_boundary.sum()
-        return x_sum
+            # self.costzmn.requires_grad_()
+            # self.sintzmn.requires_grad_()
 
-    def eps(self, x: Tensor, Rlz: Tensor, reduction: Optional[str] = "mean") -> Tensor:
+            yield domain, boundary, None, #None, None
+
+    # def b_fn(self, theta, zeta, xb):
+    #     #  TODO tensorize with pytorch / or remove
+    #
+    #     def get_fourier_basis(theta, zeta, n: int, m: int, nfp: int):
+    #         if m >= 0:
+    #             if n >= 0:
+    #                 return math.cos(abs(m) * theta) * math.cos(abs(n) * nfp * zeta)
+    #             else:
+    #                 return math.cos(abs(m) * theta) * math.sin(abs(n) * nfp * zeta)
+    #         else:
+    #             if n >= 0:
+    #                 return math.sin(abs(m) * theta) * math.cos(abs(n) * nfp * zeta)
+    #             else:
+    #                 return math.sin(abs(m) * theta) * math.sin(abs(n) * nfp * zeta)
+    #
+    #     x_boundary = np.array([
+    #         xmn * get_fourier_basis(theta=theta, zeta=zeta,
+    #                                 n=n, m=m, nfp=self.nfp)
+    #         for (m, n), xmn in xb
+    #     ])
+    #     x_sum = x_boundary.sum()
+    #     return x_sum
+
+    def eps(self, x: Tensor, RlZ: Tensor, reduction: Optional[str] = "mean") -> Tensor:
         raise NotImplementedError()
 
     def _pde_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
@@ -1183,20 +1253,21 @@ class Inverse3DMHD(Equilibrium):
         dbsubs_dx = grad(bsubs, x, create_graph=True)
         dbsubu_dx = grad(bsubu, x, create_graph=True)
         dbsubv_dx = grad(bsubv, x, create_graph=True)
-        ps = grad(p, x, create_graph=True[:, 0])
+        ps = grad(p, x, create_graph=True)[:, 0]
         f_rho = bsupv * (dbsubs_dx[:, 2] - dbsubv_dx[:, 0]) - \
                 bsupu * (dbsubu_dx[:, 0] - dbsubs_dx[:, 1]) - mu0 * ps
         #  compute mu * f_beta
-        f_beta = dbsubv_dx[:, 1] - dbsubu_dx[:, 2]
+        f_beta = (dbsubv_dx[:, 1] - dbsubu_dx[:, 2]) / jacobian
         #  compute squared norm of forces in cartesian coords
         _theta = (Zv * Rs - Rv * Zs)
         _zeta = (Zs * Ru - Zu * Rs)
         _jaco_fac = 1 / (jacobian ** 2)
         grad_rho = _jaco_fac * (R ** 2 * (Ru ** 2 + Zu ** 2) +
-                                          (Zu * Rv - Zv * Ru) ** 2)
+                                (Zu * Rv - Zv * Ru) ** 2)
         grad_theta = _jaco_fac * (R ** 2 * (Zs ** 2 + Rs ** 2) + _theta ** 2)
         grad_zeta = _jaco_fac * _zeta ** 2
         grad_thetazeta = _jaco_fac * _zeta * _theta
+        # remove the jacobian
         beta = jacobian ** 2 * \
                (grad_theta * bsupv ** 2 +
                 grad_zeta * bsupu ** 2 -
@@ -1209,22 +1280,26 @@ class Inverse3DMHD(Equilibrium):
         return 0
 
     def _boundary_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
+
         assert torch.allclose(x[:, 0], torch.ones(x.shape[0]))
-        theta = x[:, 1]
-        zeta = x[:, 2]
-        Rb = torch.as_tensor(
-            [self.b_fn(theta=t, zeta=ze, xb=self.Rb)
-             for t in theta for ze in zeta]
-        )
-        Zb = torch.as_tensor(
-            [self.b_fn(theta=t, zeta=ze, xb=self.Zb)
-             for t in theta for ze in zeta]
-        )
+
+        theta = x[:, 1].view(-1, 1)
+        zeta = x[:, 2].view(-1, 1)
+
+        f = self.poloidal_modes[:, None] * theta[:, None] - \
+            self.nfp * self.toroidal_modes[None, :] * zeta[:, None]
+
+        costzmn = torch.cos(f)
+        sintzmn = torch.sin(f)
+
+        Rb = torch.einsum("smn, smn -> s",
+                          costzmn, self.Rb.unsqueeze(0)).contiguous()
+        Zb = torch.einsum("smn, smn -> s",
+                          sintzmn, self.Zb.unsqueeze(0)).contiguous()
+
         R = RlZ[:, 0]
         Z = RlZ[:, 2]
-        return ((R - Rb) ** 2).sum() + ((Z - Zb) ** 2).sum()
+        return ((R - Rb.view(-1)) ** 2).sum() + ((Z - Zb.view(-1)) ** 2).sum()
 
     def _axis_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
         raise NotImplementedError()
-
-

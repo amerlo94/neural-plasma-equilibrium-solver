@@ -8,7 +8,8 @@ equilibrium:
   Za: 0.0
   phi_edge: 1.0
   wout_path: data/wout_DSHAPE.nc
-  ndomain: 32
+  ns: 32
+  ntheta: 32
 
 seed: 42
 max_epochs: 100

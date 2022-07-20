@@ -1,12 +1,18 @@
 from math import cos, sin
 import numpy as np
+import torch
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib.colors import Normalize as mpl_norm
 
+from utils import ift
+from utils import get_fourier_basis as get_fourier_basis_vmec
+
 
 def get_fourier_basis(theta, zeta, n: int, m: int, nfp: int):
+    # this is the DESC basis
+
     if m >= 0:
         if n >= 0:
             return cos(abs(m) * theta) * cos(abs(n) * nfp * zeta)
@@ -17,6 +23,16 @@ def get_fourier_basis(theta, zeta, n: int, m: int, nfp: int):
             return sin(abs(m) * theta) * cos(abs(n) * nfp * zeta)
         else:
             return sin(abs(m) * theta) * sin(abs(n) * nfp * zeta)
+
+
+def plot_single_zeta(rb, zb, title=""):
+    fig, ax = plt.subplots(1, 1, tight_layout=True)
+    ax.plot(rb, zb, alpha=1, color="blue")
+    plt.xlabel("R [m]")
+    plt.ylabel("Z [m]")
+    plt.title(title)
+    ax.axis('equal')
+    plt.show()
 
 
 def plot_boundary_2D():
@@ -53,10 +69,10 @@ def plot_boundary_2D():
     plt.show()
 
 
-def plot_boundary_3D():
+def plot_boundary_3D_desc():
     NFP = 19
 
-    # ((m,n), Xmn)
+    # ((m,n), Xmn), desc representation
     Rb = (
         ((0, 0), 10.),
         ((1, 0), -1.),
@@ -72,7 +88,6 @@ def plot_boundary_3D():
 
     theta = np.linspace(-np.pi, np.pi, 50)
     zeta = np.linspace(0, 2 * np.pi / NFP, 5)
-
     print(theta[0] / np.pi * 180, "\t<= theta <=\t", theta[-1] / np.pi * 180)
     print(zeta[0] / np.pi * 180, "\t<= zeta  <=\t", zeta[-1] / np.pi * 180)
 
@@ -84,17 +99,6 @@ def plot_boundary_3D():
         ])
         x_sum = x_boundary.sum()
         return x_sum
-
-    def plot_single_zeta(rb, zb, title=""):
-        fig, ax = plt.subplots(1, 1, tight_layout=True)
-        ax.plot(rb, zb, alpha=1, color="blue")
-        plt.xlabel("R [m]")
-        plt.ylabel("Z [m]")
-        plt.title(title)
-        ax.axis('equal')
-        # plt.ylim(-1.75, 1.75)
-        # plt.xlim(2., 6.)
-        plt.show()
 
     xbs, ybs, zbs, rbs = [], [], [], []
     for ze in zeta:
@@ -142,5 +146,42 @@ def plot_boundary_3D():
     # plt.show()
 
 
+def plot_boundary_3D_vmec():
+
+    ntheta = 25
+    nzeta = 7
+    include_endpoint = False
+
+    # Rb, Zb in ((m,n),xb) x \in {R,Z} in VMEC representation
+
+    NFP = 19
+    Rb = torch.as_tensor([
+        [0., 10., 0.],
+        [-0.3, -1., 0.],
+
+    ]).unsqueeze(0)
+    Zb = torch.as_tensor([
+        [0., 0., 0.],
+        [-0.3, 1., 0.],
+
+    ]).unsqueeze(0)
+
+    # theta = np.linspace(-np.pi, np.pi, ntheta, endpoint=include_endpoint)
+    zeta = np.linspace(0, 2 * np.pi / NFP, nzeta, endpoint=include_endpoint)
+    # print(theta[0] / np.pi * 180, "\t<= theta <=\t", theta[-1] / np.pi * 180)
+    print(zeta[0] / np.pi * 180, "\t<= zeta  <=\t", zeta[-1] / np.pi * 180)
+
+
+    boundary_R = ift((Rb, None), ntheta=ntheta, nzeta=nzeta,
+                     include_endpoint=include_endpoint, num_field_period=NFP)
+
+
+    boundary_Z = ift((None, Zb), ntheta=ntheta, nzeta=nzeta,
+                     include_endpoint=include_endpoint, num_field_period=NFP)
+
+    for i, ze in enumerate(zeta):
+        plot_single_zeta(boundary_R[0][:, i], boundary_Z[0][:, i], ze)
+
+
 if __name__ == '__main__':
-    plot_boundary_3D()
+    plot_boundary_3D_vmec()

@@ -5,6 +5,7 @@ from typing import Union, Tuple
 import torch
 from torch import Tensor
 
+
 from utils import get_fourier_basis
 
 
@@ -201,7 +202,8 @@ class InverseGradShafranovMLP(torch.nn.Module):
         cosm = torch.cos(rf)
         sinm = torch.sin(rf)
         #  Compute R, lambda and Z
-        rho_factor = torch.cat([rho ** m for m in range(self.num_features)], dim=-1)
+        rho_factor = torch.cat([rho ** m
+                                for m in range(self.num_features)], dim=-1)
         R = self.Rb * rho_factor * (1 + self.R_branch(rho))
         R = (R * cosm).sum(dim=1).view(-1, 1)
         l = self.lb * rho_factor * (1 + self.l_branch(rho))
@@ -218,21 +220,31 @@ class Inverse3DMHDMLP(torch.nn.Module):
             self,
             Rb,
             Zb,
+            ns: int,
             ntheta: int,
             nzeta: int,
             nfp: int,
+            sym: bool = True,
             width: int = 16,
+    # if m=2 then m ∈ {0, 1, 2}
+            max_mpol: int = 1,
+    # if n=1 then n ∈ {-1, 0, 1}, max_ntor is highest positive toroidal mode number in output
+            max_ntor: int = 1,
     ) -> None:
         super().__init__()
 
-        #  Fourier features
-        # self.num_features = num_features
-        self.Rb = Rb
-        self.Zb = Zb
-        self.mode_min, self.mode_max = self._get_mn()
-        self.idx = self.mode_max - self.mode_min + 1
+        assert sym, NotImplementedError("non-symmetric not implemented yet")
+
+        self.max_mpol = max_mpol
+        self.max_ntor = max_ntor
+        self.mpol_shape = max_mpol + 1  # maximum of first fourier-modes matrix index
+        self.ntor_shape = max_ntor * 2 + 1  # maximum of second fourier-modes matrix index
+        self.poloidal_modes = torch.arange(0, self.max_mpol + 1)  # [:, None]
+        self.toroidal_modes = torch.arange(-self.max_ntor, self.max_ntor + 1)
+        idx = self.mpol_shape * self.ntor_shape
 
         #  grid for fourier features
+        self.ns = ns
         self.ntheta = ntheta
         self.nzeta = nzeta
         self.nfp = nfp
@@ -240,35 +252,31 @@ class Inverse3DMHDMLP(torch.nn.Module):
         self.R_branch = torch.nn.Sequential(
             torch.nn.Linear(1, width),
             torch.nn.Tanh(),
-            torch.nn.Linear(width, self.idx**2),
+            torch.nn.Linear(width, idx),
         )
         self.l_branch = torch.nn.Sequential(
             torch.nn.Linear(1, width),
             torch.nn.Tanh(),
-            torch.nn.Linear(width, self.idx**2),
+            torch.nn.Linear(width, idx),
         )
         self.Z_branch = torch.nn.Sequential(
             torch.nn.Linear(1, width),
             torch.nn.Tanh(),
-            torch.nn.Linear(width, self.idx**2),
+            torch.nn.Linear(width, idx),
         )
 
+        self.Rb = Rb
+        self.Zb = Zb
 
-        pad = torch.ones(self.idx, self.idx) * 1e-3
-        self.Rb = pad.clone()
-        self.Zb = pad.clone()
+        #
+        # zero_pad = torch.nn.ZeroPad2d((0, (self.mpol_shape-self.Rb.shape[0]),
+        #                                0, (self.ntor_shape-self.Rb.shape[1])))
+        # self.Rb = zero_pad(self.Rb)
+        # self.Zb = zero_pad(self.Zb)
 
-        for (m, n), x in Rb:
-            self.Rb[m + abs(self.mode_min), n + abs(self.mode_max)] = x
-        self.Rb = self.Rb.view(-1, self.idx)
-
-        for (m, n), x in Zb:
-            self.Zb[m + abs(self.mode_min), n + abs(self.mode_max)] = x
-        self.Zb = self.Zb.view(-1, self.idx)
-
-        self.lb = torch.ones(self.idx, self.idx)
+        self.lb = torch.ones(self.mpol_shape, self.ntor_shape)
         self.lb[0, :] = 0
-        self.lb = self.lb.view(-1, self.idx)
+        self.lb[:, 0] = 0
 
         for tensor in (
                 self.R_branch[-1].weight,
@@ -285,34 +293,73 @@ class Inverse3DMHDMLP(torch.nn.Module):
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    def _get_mn(self):
-        low_m = 10
-        high_m = -10
-        low_n = 10
-        high_n = -10
-        for B in [self.Rb, self.Zb]:
-            for (m, n), x in B:
-                if m > high_m: high_m = m
-                if m < low_m: low_m = m
-                if n > high_n: high_n = n
-                if n < low_n: low_n = n
-        mode_max = max(high_m, high_n)
-        mode_min = min(low_m, low_n)
-        return mode_min, mode_max
+    # def _get_mn(self):
+    #     low_m = 10
+    #     high_m = -10
+    #     low_n = 10
+    #     high_n = -10
+    #     for B in [self.Rb, self.Zb]:
+    #         for (m, n), x in B:
+    #             if m > high_m: high_m = m
+    #             if m < low_m: low_m = m
+    #             if n > high_n: high_n = n
+    #             if n < low_n: low_n = n
+    #     mode_max = max(high_m, high_n)
+    #     mode_min = min(low_m, low_n)
+    #     return mode_min, mode_max
 
     def forward(self, x: Tensor) -> Tensor:
         rho = x[:, 0].view(-1, 1)
         theta = x[:, 1].view(-1, 1)
         zeta = x[:, 2].view(-1, 1)
+
         # compute R, lambda, Z
-        rho_factor = torch.cat(
-            [rho ** m for m in range(self.idx)],
-            dim=-1)
-        basis = get_fourier_basis(mpol=1,ntor=1,ntheta=self.ntheta,
-                                  nzeta=self.nzeta,endpoint=False,
-                                  num_field_period=self.nfp,
-                                  dtype=rho.dtype, device=self.device)
-        R = 0
-        return R
+        rho_factor = torch.cat([rho ** m for m in range(self.mpol_shape)], dim=-1).unsqueeze(-1)
+        # rho_factor = rho_factor.view(-1, self.ntheta, self.nzeta, rho_factor.shape[1], 1)
+
+
+        # basis = get_fourier_basis(mpol=self.max_mpol - 1, ntor=int((self.max_ntor - 1) / 2),
+        #                           ntheta=self.ntheta, nzeta=self.nzeta, include_endpoint=False,
+        #                           num_field_period=self.nfp, dtype=rho.dtype, device=self.device)
+
+        # costzmn0, sintzmn0 = get_fourier_basis(mpol=self.max_mpol-1, ntor=int((self.max_ntor-1)/2),
+        #                            ntheta=self.ntheta, nzeta=self.nzeta,
+        #                            grid=x, include_endpoint=False, num_field_period=self.nfp,
+        #                            dtype=rho.dtype, device=self.device)
+
+        # costzmn = torch.cos((self.poloidal_modes[None, None, :, None] * theta.unique()[:, None, None, None]) -
+        # (self.nfp * self.toroidal_modes[None, None, None, :] * zeta.unique()[None, :, None, None]))[None, :]
+        # sintzmn = torch.sin((self.poloidal_modes[None, None, :, None] * theta.unique()[:, None, None, None]) -
+        # (self.nfp * self.toroidal_modes[None, None, None, :] * zeta.unique()[None, :, None, None]))[None, :]
+
+        # costzmn = torch.cos(
+        #     self.poloidal_modes[None, None, :, None] * theta[:, None, None, None] -
+        #     self.nfp * self.toroidal_modes[None, None, None, :] * zeta[None, :, None,
+        #                                                            None])
+        # sintzmn = torch.sin(
+        #     (self.poloidal_modes[None, None, :, None] * theta[:, None, None, None]) -
+        #     (self.nfp * self.toroidal_modes[None, None, None, :] * zeta[None, :, None,
+        #                                                            None]))
+
+        f = self.poloidal_modes[:, None] * theta[:, None] - \
+            self.nfp * self.toroidal_modes[None, :] * zeta[:, None]
+
+        costzmn = torch.cos(f)
+        sintzmn = torch.sin(f)
+
+        R = rho_factor * self.Rb * \
+            (1 + self.R_branch(rho).reshape(-1, self.mpol_shape, self.ntor_shape))
+        R = torch.einsum("smn,smn->s", costzmn, R).contiguous()
+        R = R.view(-1, 1)
+        l = rho_factor * self.lb * \
+            (1 + self.l_branch(rho).reshape(-1, self.mpol_shape, self.ntor_shape))
+        l = torch.einsum("smn,smn->s", sintzmn, l).contiguous()
+        l = l.view(-1, 1)
+        Z = rho_factor * self.Zb * \
+            (1 + self.Z_branch(rho).reshape(-1, self.mpol_shape, self.ntor_shape))
+        Z = torch.einsum("smn,smn->s", sintzmn, Z).contiguous()
+        Z = Z.view(-1, 1)
+        RlZ = torch.cat([R, l, Z], dim=-1)
+        return RlZ
 
 
