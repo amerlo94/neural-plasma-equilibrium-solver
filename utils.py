@@ -171,16 +171,13 @@ def get_solovev_boundary(
     return Rb.detach()
 
 
-def get_RlZ_from_wout(
-    x: Tensor, wout_path: str, deg: Optional[int] = 1, mpol: Optional[int] = 2
-):
+def get_RlZ_from_wout(x: Tensor, wout_path: str, mpol: Optional[int] = 5):
     """
     Compute flux surfaces geometry on a given grid from a VMEC wout file.
 
     Args:
         x (torch.Tensor): the rho-theta grid on which to compute the RlZ tensor.
         wout_path (str): the wout file path.
-        deg (int, optional): the degree of the polynomials to use to fit the VMEC solution. Default: 1.
         mpol (int, optional): the highest poloidal modes to use to build the RlZ tensor. Default: 2.
     """
 
@@ -191,28 +188,51 @@ def get_RlZ_from_wout(
 
     #  Build differentiable solution
     ns = wout["ns"][:].data.item()
-    phi = np.linspace(0, 1, ns)
+    hs = 1 / (ns - 1)
+    phi = torch.linspace(0, 1, ns)
 
     def get_fit(x: str):
-        xmn = wout[x][:].data
-        xmn_ = []
+        xmn = torch.from_numpy(wout[x][:].data)
+        xmns = []
         #  lmns is defined on half-mesh
         if x == "lmns":
-            ns = xmn.shape[0]
-            phi[1:] = np.linspace(0, 1, ns)[:-1] + 1 / (2 * ns)
+            phi[1:] = torch.linspace(0, 1, ns)[1:] - 0.5 / (ns - 1)
         for m in range(min(xmn.shape[1], mpol + 1)):
-            #  Fit xm / rho ** m
-            factor = np.ones_like(phi)
+            #  Interpolate xmn / rho ** m
+            xmn_ = xmn
             if m != 0:
-                factor = np.sqrt(phi) ** m
-            coef = np.polynomial.Polynomial.fit(
-                phi[1:], xmn[1:, m] / factor[1:], deg=deg, domain=[0, 1], window=[0, 1]
-            ).coef.tolist()
-            fit = 0
-            for i, c in enumerate(coef):
-                fit += c * rho ** (2 * i + m)
-            xmn_.append(fit)
-        return torch.stack(xmn_, dim=-1)
+                xmn_ = xmn / torch.sqrt(phi)[:, None] ** m
+            #  Quadratic interpolation
+            idx_l = (
+                torch.argmin(
+                    torch.relu(rho.detach()[:, None] ** 2 - phi[None, :]), dim=1
+                )
+                - 1
+            )
+            #  Boundary indices
+            if m == 0:
+                idx_l[idx_l == -1] = 0
+            else:
+                idx_l[idx_l == -1] = 1
+                idx_l[idx_l == 0] = 1
+            idx_l[idx_l == ns - 2] = ns - 3
+            b0 = xmn_[idx_l, m]
+            b1 = (xmn_[idx_l + 1, m] - xmn_[idx_l, m]) / hs
+            b2 = (xmn_[idx_l + 2, m] - 2 * xmn_[idx_l + 1, m] + xmn_[idx_l, m]) / (
+                2 * hs**2
+            )
+            interp = (
+                b0
+                + b1 * (rho**2 - phi[idx_l])
+                + b2 * (rho**2 - phi[idx_l]) * (rho**2 - phi[idx_l + 1])
+            )
+            #  Linearly interpolate on axis
+            if m != 0:
+                #  TODO: this has no effect due to line 216 and 217
+                interp[idx_l == 0] = xmn[1, m] / phi[1] ** (m / 2)
+            interp *= rho**m
+            xmns.append(interp)
+        return torch.stack(xmns, dim=-1)
 
     rmnc = get_fit("rmnc")
     lmns = get_fit("lmns")

@@ -196,13 +196,32 @@ def test_grad_shafranov_eps(noise, reduction, fsq0, normalized):
 #  TODO: improve fitting of RlZ, especially for lambda
 @pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc", "data/wout_SOLOVEV.nc"))
 @pytest.mark.parametrize("ntheta", (32,))
-@pytest.mark.parametrize("s", range(128))
+@pytest.mark.parametrize("s", range(1024))
 @pytest.mark.parametrize("xmn", ("rmnc", "lmns", "zmns"))
 def test_get_RlZ_from_wout(wout_path, ntheta, xmn, s):
+
+    wout = get_wout(wout_path)
 
     equi = InverseGradShafranovEquilibrium.from_vmec(wout_path)
     equi.ntheta = ntheta
     grid = equi.grid().to(torch.float64)
+
+    #  Get quantity at the same radial location
+    rho_idx = int(s / 1024 * equi.ndomain)
+    rho = grid[:: equi.ntheta, 0][rho_idx]
+
+    ns = wout["ns"][:].data.item()
+    if xmn == "lmns":
+        phi = torch.zeros(ns)
+        phi[1:] = torch.linspace(0, 1, ns)[:-1] - 0.5 / (ns - 1)
+    else:
+        phi = torch.linspace(0, 1, ns)
+
+    phi_idx = (phi - rho**2).abs().argmin()
+
+    #  Skip if radial location does not match
+    if (phi[phi_idx] - rho**2).abs() > 1e-4:
+        return
 
     RlZ = get_RlZ_from_wout(grid, wout_path)
     if xmn == "rmnc":
@@ -213,7 +232,6 @@ def test_get_RlZ_from_wout(wout_path, ntheta, xmn, s):
         x = RlZ[:, 2]
     x = x.view(-1, equi.ntheta)
 
-    wout = get_wout(wout_path)
     basis = "cos" if xmn == "rmnc" else "sin"
     vmec_x = ift(
         torch.as_tensor(wout[xmn][:]).clone(),
@@ -221,30 +239,11 @@ def test_get_RlZ_from_wout(wout_path, ntheta, xmn, s):
         ntheta=grid[: equi.ntheta, 1],
     )
 
-    #  Get quantity at the same radial location
-    rho_idx = int(s / 128 * x.shape[0])
-    rho = grid[:: equi.ntheta, 0][rho_idx]
-
-    ns = vmec_x.shape[0]
-    if xmn == "lmns":
-        phi = torch.zeros(ns)
-        phi[1:] = torch.linspace(0, 1, ns)[:-1] + 1 / (2 * ns)
-    else:
-        phi = torch.linspace(0, 1, vmec_x.shape[0])
-
-    phi_idx = (phi - rho**2).abs().argmin()
-
-    #  Skip if radial location does not match
-    if (phi[phi_idx] - rho**2).abs() > 1e-3:
-        return
-
-    #  Skip if on axis
-    if phi[phi_idx] == 0:
-        return
-
+    #  Check if quantiies are below 1e-3 m for R and Z,
+    #  and below 1e-3 rad for lambda
     assert torch.allclose(
-        x[rho_idx], vmec_x[phi_idx], rtol=1e-2, atol=0
-    ), f"mae={((x[rho_idx] - vmec_x[phi_idx])/vmec_x[phi_idx]).abs().mean():.2e} at rho={rho:.2f}"
+        x[rho_idx], vmec_x[phi_idx], rtol=0, atol=1e-3
+    ), f"mae={(x[rho_idx] - vmec_x[phi_idx]).abs().mean():.2e} at rho={rho:.2f}"
 
 
 @pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc", "data/wout_SOLOVEV.nc"))
@@ -253,7 +252,7 @@ def test_inverse_grad_shafranov_pde_closure(wout_path, ntheta):
 
     equi = InverseGradShafranovEquilibrium.from_vmec(wout_path)
     equi.ntheta = ntheta
-    x = equi.grid()
+    x = equi.grid().to(torch.float64)
 
     #  Do not use axis and boundary
     x = x[equi.ntheta : -equi.ntheta, :]
@@ -267,16 +266,35 @@ def test_inverse_grad_shafranov_pde_closure(wout_path, ntheta):
     assert mean_f < 1e-3
 
 
-#  TODO: review test once improved fitting for RlZ has been fixed
+#  TODO: improve jacobian
 @pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc", "data/wout_SOLOVEV.nc"))
 @pytest.mark.parametrize("ntheta", (32,))
-@pytest.mark.parametrize("s", range(128))
+@pytest.mark.parametrize("s", range(512))
 def test_inverse_grad_shafranov_jacobian(wout_path, ntheta, s):
+
+    wout = get_wout(wout_path)
 
     equi = InverseGradShafranovEquilibrium.from_vmec(wout_path)
     equi.ntheta = ntheta
-    equi.ndomain = 32
     x = equi.grid().to(torch.float64)
+
+    #  Get quantity at the same radial location
+    rho_idx = int(s / 512 * equi.ndomain)
+    rho = x[:: equi.ntheta, 0][rho_idx]
+
+    ns = wout["ns"][:].data.item()
+    phi = torch.zeros(ns)
+    phi[1:] = torch.linspace(0, 1, ns)[:-1] - 0.5 / (ns - 1)
+
+    phi_idx = (phi - rho**2).abs().argmin()
+
+    #  Skip if radial location does not match
+    if (phi[phi_idx] - rho**2).abs() > 1e-4:
+        return
+
+    #  Skip on axis
+    if phi[phi_idx] == 0:
+        return
 
     x.requires_grad_()
     rho = x[:, 0]
@@ -305,24 +323,6 @@ def test_inverse_grad_shafranov_jacobian(wout_path, ntheta, s):
     with torch.no_grad():
         vmec_jacobian = ift(gmnc, basis="cos", ntheta=theta[: equi.ntheta])
 
-    #  Get quantity at the same radial location
-    rho_idx = int(s / 128 * jacobian.shape[0])
-    rho = rho[:: equi.ntheta][rho_idx]
-
-    ns = vmec_jacobian.shape[0]
-    phi = torch.zeros(ns)
-    phi[1:] = torch.linspace(0, 1, ns)[:-1] + 1 / (2 * ns)
-
-    phi_idx = (phi - rho**2).abs().argmin()
-
-    #  Skip if radial location does not match
-    if (phi[phi_idx] - rho**2).abs() > 1e-3:
-        return
-
-    #  Skip if on axis
-    if phi[phi_idx] == 0:
-        return
-
     assert torch.allclose(
-        jacobian[rho_idx], vmec_jacobian[phi_idx], rtol=1e-2, atol=0
-    ), f"mae={((jacobian[rho_idx] - vmec_jacobian[phi_idx])/vmec_jacobian[phi_idx]).abs().mean():.2e} at rho={rho:.2f}"
+        jacobian[rho_idx], vmec_jacobian[phi_idx], atol=1e-2, rtol=0
+    ), f"mae={(jacobian[rho_idx] - vmec_jacobian[phi_idx]).abs().mean():.2e} at rho={rho[::equi.ntheta][rho_idx]:.2f}"
