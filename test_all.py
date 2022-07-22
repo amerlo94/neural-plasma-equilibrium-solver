@@ -384,3 +384,28 @@ def test_get_3DRlZ_from_wout(wout_path, ntheta, nzeta, xmn):
         assert torch.allclose(
             x[js], vmec_x[js], rtol=0, atol=1e-6
         ), f"mae={(x[js] - vmec_x[js]).abs().mean():.2e} at rho={rho[js]:.4f}"
+
+
+#  TODO: increase grid size
+@pytest.mark.parametrize("wout_path", ("data/wout_HELIOTRON.nc",))
+@pytest.mark.parametrize("ns", (21,))
+@pytest.mark.parametrize("ntheta", (16,))
+@pytest.mark.parametrize("nzeta", (18,))
+def test_inverse_3d_pde_closure(wout_path, ns, ntheta, nzeta):
+
+    equi = Inverse3DMHD.from_vmec(wout_path)
+    equi.ns = ns
+    equi.ntheta = ntheta
+    equi.nzeta = nzeta
+    x = equi.grid().to(torch.float64)
+
+    #  Do not use axis and boundary
+    x = x[equi.ntheta * equi.nzeta : -equi.ntheta * equi.nzeta, :]
+    x.requires_grad_()
+
+    RlZ = get_RlZ_from_wout(x, wout_path)
+
+    fsq = equi.pde_closure(x, RlZ).item()
+    mean_f = np.sqrt(fsq) / (equi.ns * equi.ntheta * equi.nzeta)
+
+    assert mean_f < 1e-3

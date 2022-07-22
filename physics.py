@@ -28,15 +28,19 @@ class SymmetricGrid:
     and X={λ,Z} into X = Xmn,s(s) * sin(mu − nvNFP)
     s.t. Fourier transform requires only sin/cos terms
     """
+
     # IFT: (costzmn, sintzmn)  -  tzmn: thetazetamn
     # IFT: (Tensor, Tensor)
     # IFT_b: (Tensor, Tensor)
 
-    def __init__(self, domain: Tensor,
-                 boundary: Tensor,
-                 IFT: Tuple[Tensor, Tensor],
-                 axis: Optional[Tensor] = None):
-                 # IFT_b: (Tensor, Tensor)):
+    def __init__(
+        self,
+        domain: Tensor,
+        boundary: Tensor,
+        IFT: Tuple[Tensor, Tensor],
+        axis: Optional[Tensor] = None,
+    ):
+        # IFT_b: (Tensor, Tensor)):
 
         self.domain = domain
         self.boundary = boundary
@@ -49,12 +53,12 @@ class SymmetricGrid:
 
 class Equilibrium(IterableDataset):
     def __init__(
-            self,
-            ns: int = 50,  # radial (s) points
-            ntheta: int = 50,  # poloidal angle (u) points
-            nboundary: int = 50,  # boundary points
-            normalized: bool = False,
-            seed: int = 42,
+        self,
+        ns: int = 50,  # radial (s) points
+        ntheta: int = 50,  # poloidal angle (u) points
+        nboundary: int = 50,  # boundary points
+        normalized: bool = False,
+        seed: int = 42,
     ) -> None:
 
         super().__init__()
@@ -87,14 +91,14 @@ class Equilibrium(IterableDataset):
             self.mae_pde_loss = self._mae_pde_loss
 
     def closure(
-            self,
-            x_domain: Tensor,
-            psi_domain: Tensor,
-            x_boundary: Tensor,
-            psi_boundary: Tensor,
-            x_axis: Optional[Tensor] = None,
-            psi_axis: Optional[Tensor] = None,
-            return_dict: Optional[bool] = False,
+        self,
+        x_domain: Tensor,
+        psi_domain: Tensor,
+        x_boundary: Tensor,
+        psi_boundary: Tensor,
+        x_axis: Optional[Tensor] = None,
+        psi_axis: Optional[Tensor] = None,
+        return_dict: Optional[bool] = False,
     ) -> Tensor:
         loss = {}
         loss["pde"] = self.pde_closure(x_domain, psi_domain)
@@ -150,19 +154,19 @@ class Equilibrium(IterableDataset):
     def p_fn(self, psi):
         p = 0
         for i, coef in enumerate(self.p):
-            p += coef * psi ** i
+            p += coef * psi**i
         return p
 
     def fsq_fn(self, psi):
         fsq = 0
         for i, coef in enumerate(self.fsq):
-            fsq += coef * psi ** i
+            fsq += coef * psi**i
         return fsq
 
     def iota_fn(self, psi):
         iota = 0
         for i, coef in enumerate(self.iota):
-            iota += coef * psi ** i
+            iota += coef * psi**i
         return iota
 
     def Rb_fn(self, theta):
@@ -180,7 +184,7 @@ class Equilibrium(IterableDataset):
 
 class HighBetaEquilibrium(Equilibrium):
     def __init__(
-            self, a: float = 0.1, A: float = 1, C: float = 10, R0: float = 0.6, **kwargs
+        self, a: float = 0.1, A: float = 1, C: float = 10, R0: float = 0.6, **kwargs
     ) -> None:
         super().__init__(**kwargs)
 
@@ -188,7 +192,7 @@ class HighBetaEquilibrium(Equilibrium):
         self.A = A
         self.C = C
         self.R0 = R0
-        self.psi_0 = -2 * A * a ** 2 / 8
+        self.psi_0 = -2 * A * a**2 / 8
         self.ndomain = self.ns * self.ntheta
 
     def __iter__(self):
@@ -218,20 +222,20 @@ class HighBetaEquilibrium(Equilibrium):
         rho = x[:, 0]
         theta = x[:, 1]
         return (
-                0.125
-                * (rho ** 2 - self.a ** 2)
-                * (2 * self.A + self.C * rho * torch.cos(theta))
+            0.125
+            * (rho**2 - self.a**2)
+            * (2 * self.A + self.C * rho * torch.cos(theta))
         )
 
     def psi_(self, x: Tensor) -> Tensor:
         rho = x[:, 0]
         theta = x[:, 1]
         return (
-                0.125
-                * self.a ** 2
-                * (rho ** 2 - 1)
-                * (2 * self.A + self.C * rho * self.a * torch.cos(theta))
-                / self.psi_0
+            0.125
+            * self.a**2
+            * (rho**2 - 1)
+            * (2 * self.A + self.C * rho * self.a * torch.cos(theta))
+            / self.psi_0
         )
 
     def _data_closure(self, x: Tensor, psi: Tensor) -> Tensor:
@@ -252,9 +256,9 @@ class HighBetaEquilibrium(Equilibrium):
         # residual = 1 / rho * dpsi_drho + dpsi2_drho2
         # residual += 1 / rho ** 2 * dpsi2_dtheta2
         # residual -= A + C * rho * torch.cos(theta)
-        residual = rho * dpsi_drho + rho ** 2 * dpsi2_drho2 + dpsi2_dtheta2
-        residual -= rho ** 2 * (self.A + self.C * rho * torch.cos(theta))
-        return (residual ** 2).sum()
+        residual = rho * dpsi_drho + rho**2 * dpsi2_drho2 + dpsi2_dtheta2
+        residual -= rho**2 * (self.A + self.C * rho * torch.cos(theta))
+        return (residual**2).sum()
 
     def _mae_pde_loss(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
@@ -264,8 +268,8 @@ class HighBetaEquilibrium(Equilibrium):
         dpsi2_dtheta2 = grad(dpsi_dtheta, x, create_graph=True)[:, 1]
         rho = x[:, 0]
         theta = x[:, 1]
-        residual = rho * dpsi_drho + rho ** 2 * dpsi2_drho2 + dpsi2_dtheta2
-        denom = rho ** 2 * (self.A + self.C * rho * torch.cos(theta))
+        residual = rho * dpsi_drho + rho**2 * dpsi2_drho2 + dpsi2_dtheta2
+        denom = rho**2 * (self.A + self.C * rho * torch.cos(theta))
         #  Do not compute error at the boundary to avoid division by 0
         #  TODO: can we relax this?
         return mae(residual[rho != self.a], denom[rho != self.a])
@@ -278,14 +282,14 @@ class HighBetaEquilibrium(Equilibrium):
         dpsi2_dtheta2 = grad(dpsi_dtheta, x, create_graph=True)[:, 1]
         rho = x[:, 0]
         theta = x[:, 1]
-        residual = rho * dpsi_drho + rho ** 2 * dpsi2_drho2 + dpsi2_dtheta2
+        residual = rho * dpsi_drho + rho**2 * dpsi2_drho2 + dpsi2_dtheta2
         residual -= (
-                self.a ** 2
-                / self.psi_0
-                * rho ** 2
-                * (self.A + self.a * self.C * rho * torch.cos(theta))
+            self.a**2
+            / self.psi_0
+            * rho**2
+            * (self.A + self.a * self.C * rho * torch.cos(theta))
         )
-        return (residual ** 2).sum()
+        return (residual**2).sum()
 
     def _mae_pde_loss_(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
@@ -295,12 +299,12 @@ class HighBetaEquilibrium(Equilibrium):
         dpsi2_dtheta2 = grad(dpsi_dtheta, x, create_graph=True)[:, 1]
         rho = x[:, 0]
         theta = x[:, 1]
-        residual = rho * dpsi_drho + rho ** 2 * dpsi2_drho2 + dpsi2_dtheta2
+        residual = rho * dpsi_drho + rho**2 * dpsi2_drho2 + dpsi2_dtheta2
         denom = (
-                self.a ** 2
-                / self.psi_0
-                * rho ** 2
-                * (self.A + self.a * self.C * rho * torch.cos(theta))
+            self.a**2
+            / self.psi_0
+            * rho**2
+            * (self.A + self.a * self.C * rho * torch.cos(theta))
         )
         #  Do not compute error at the boundary to avoid division by 0
         #  TODO: can we relax this?
@@ -371,23 +375,23 @@ class GradShafranovEquilibrium(Equilibrium):
     """
 
     def __init__(
-            self,
-            p: Tuple[float] = (0.125 / mu0, -0.125 / mu0),
-            fsq: Tuple[float] = (4, -4 * 4 / 10),
-            Rb: Tuple[float] = (
-                    3.9334e00,
-                    -1.0258e00,
-                    -6.8083e-02,
-                    -9.0720e-03,
-                    -1.4531e-03,
-            ),
-            Zb: Tuple[float] = (0, math.sqrt(10) / 2, 0, 0, 0),
-            Ra: float = 3.9332,
-            Za: float = 0.0,
-            psi_0: float = 1,
-            wout_path: Optional[str] = None,
-            is_solovev: Optional[bool] = True,
-            **kwargs,
+        self,
+        p: Tuple[float] = (0.125 / mu0, -0.125 / mu0),
+        fsq: Tuple[float] = (4, -4 * 4 / 10),
+        Rb: Tuple[float] = (
+            3.9334e00,
+            -1.0258e00,
+            -6.8083e-02,
+            -9.0720e-03,
+            -1.4531e-03,
+        ),
+        Zb: Tuple[float] = (0, math.sqrt(10) / 2, 0, 0, 0),
+        Ra: float = 3.9332,
+        Za: float = 0.0,
+        psi_0: float = 1,
+        wout_path: Optional[str] = None,
+        is_solovev: Optional[bool] = True,
+        **kwargs,
     ) -> None:
         super().__init__(**kwargs)
 
@@ -508,7 +512,7 @@ class GradShafranovEquilibrium(Equilibrium):
         nabla_star = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
         if self.normalized:
             nabla_star *= self.psi_0 / self.Rb[0] ** 2
-        term = mu0 * R ** 2 * dp_dpsi
+        term = mu0 * R**2 * dp_dpsi
         if self.normalized:
             term *= self.Rb[0] ** 2 / self.psi_0
         gs = nabla_star + term
@@ -516,13 +520,13 @@ class GradShafranovEquilibrium(Equilibrium):
         if self.normalized:
             term *= 1 / self.psi_0
         gs += term
-        fR = -1 / (mu0 * R ** 2) * dpsi_dR * gs
-        fZ = -1 / (mu0 * R ** 2) * dpsi_dZ * gs
-        fsq = fR ** 2 + fZ ** 2
+        fR = -1 / (mu0 * R**2) * dpsi_dR * gs
+        fZ = -1 / (mu0 * R**2) * dpsi_dZ * gs
+        fsq = fR**2 + fZ**2
         if self.normalized:
-            fsq *= self.psi_0 ** 2 / self.Rb[0] ** 6
+            fsq *= self.psi_0**2 / self.Rb[0] ** 6
         #  grad-p
-        gradpsq = dp_dpsi ** 2 * (dpsi_dR ** 2 + dpsi_dZ ** 2)
+        gradpsq = dp_dpsi**2 * (dpsi_dR**2 + dpsi_dZ**2)
         if self.normalized:
             gradpsq *= 1 / self.Rb[0] ** 2
         if reduction is None:
@@ -546,8 +550,8 @@ class GradShafranovEquilibrium(Equilibrium):
         dfsq_dpsi = grad(fsq, psi, create_graph=True)
         R = x[:, 0]
         residual = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
-        residual += mu0 * R ** 2 * dp_dpsi + 0.5 * dfsq_dpsi
-        return (residual ** 2).sum()
+        residual += mu0 * R**2 * dp_dpsi + 0.5 * dfsq_dpsi
+        return (residual**2).sum()
 
     def _pde_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
@@ -561,9 +565,9 @@ class GradShafranovEquilibrium(Equilibrium):
         dfsq_dpsi = grad(fsq, psi, create_graph=True)
         R = x[:, 0]
         residual = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
-        residual += mu0 * self.Rb[0] ** 4 / self.psi_0 ** 2 * R ** 2 * dp_dpsi
-        residual += 0.5 * self.Rb[0] ** 2 / self.psi_0 ** 2 * dfsq_dpsi
-        return (residual ** 2).sum()
+        residual += mu0 * self.Rb[0] ** 4 / self.psi_0**2 * R**2 * dp_dpsi
+        residual += 0.5 * self.Rb[0] ** 2 / self.psi_0**2 * dfsq_dpsi
+        return (residual**2).sum()
 
     def _mae_pde_loss(self, x: Tensor, psi: Tensor) -> Tensor:
         dpsi_dx = grad(psi, x, create_graph=True)
@@ -577,7 +581,7 @@ class GradShafranovEquilibrium(Equilibrium):
         dfsq_dpsi = grad(fsq, psi, retain_graph=True)
         R = x[:, 0]
         nabla_star = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
-        denom = mu0 * R ** 2 * dp_dpsi + 0.5 * dfsq_dpsi
+        denom = mu0 * R**2 * dp_dpsi + 0.5 * dfsq_dpsi
         return mae(nabla_star, -denom)
 
     def _mae_pde_loss_(self, x: Tensor, psi: Tensor) -> Tensor:
@@ -592,8 +596,8 @@ class GradShafranovEquilibrium(Equilibrium):
         dfsq_dpsi = grad(fsq, psi, create_graph=True)
         R = x[:, 0]
         nabla_star = -1 / R * dpsi_dR + dpsi2_dR2 + dpsi2_dZ2
-        denom = mu0 * self.Rb[0] ** 4 / self.psi_0 ** 2 * R ** 2 * dp_dpsi
-        denom += 0.5 * self.Rb[0] ** 2 / self.psi_0 ** 2 * dfsq_dpsi
+        denom = mu0 * self.Rb[0] ** 4 / self.psi_0**2 * R**2 * dp_dpsi
+        denom += 0.5 * self.Rb[0] ** 2 / self.psi_0**2 * dfsq_dpsi
         return mae(nabla_star, -denom)
 
     def _boundary_closure(self, x: Tensor, psi: Tensor) -> Tensor:
@@ -603,10 +607,10 @@ class GradShafranovEquilibrium(Equilibrium):
         return ((psi - 1) ** 2).sum()
 
     def _axis_closure(self, x: Tensor, psi: Tensor) -> Tensor:
-        return (psi ** 2).sum()
+        return (psi**2).sum()
 
     def _axis_closure_(self, x: Tensor, psi: Tensor) -> Tensor:
-        return (psi ** 2).sum()
+        return (psi**2).sum()
 
     def psi(self, x: Tensor) -> Tensor:
         """
@@ -622,7 +626,7 @@ class GradShafranovEquilibrium(Equilibrium):
         p0 = self.p[0] * mu0  # beta0 in VMEC
         #  Get axis from R at boundary
         Ra = math.sqrt(self.Rb.sum().item() ** 2 + math.sqrt(8 / p0))
-        return f0 * l2 * Z ** 2 + p0 / 8 * (R ** 2 - Ra ** 2) ** 2
+        return f0 * l2 * Z**2 + p0 / 8 * (R**2 - Ra**2) ** 2
 
     def grid(self, ns: int = None, normalized: bool = None) -> Tensor:
 
@@ -681,12 +685,12 @@ class GradShafranovEquilibrium(Equilibrium):
         return ax
 
     def fluxsurfacesplot(
-            self,
-            x,
-            ax,
-            psi: Optional[Tensor] = None,
-            ns: Optional[int] = None,
-            nplot: Optional[int] = 10,
+        self,
+        x,
+        ax,
+        psi: Optional[Tensor] = None,
+        ns: Optional[int] = None,
+        nplot: Optional[int] = 10,
     ):
         """
         Plot flux surfaces on (R, Z) plane.
@@ -731,17 +735,17 @@ class InverseGradShafranovEquilibrium(Equilibrium):
     """The default case is a DSHAPE equilibrium as in the original VMEC paper."""
 
     def __init__(
-            self,
-            p: Tuple[float] = (1.6e3, -2 * 1.6e3, 1.6e3),
-            iota: Tuple[float] = (1, -0.67),
-            Rb: Tuple[float] = (3.51, 1.0, 0.106),
-            Zb: Tuple[float] = (0, 1.47, -0.16),
-            Ra: float = 3.51,
-            Za: float = 0.0,
-            phi_edge: float = 1,
-            wout_path: Optional[str] = None,
-            is_solovev: Optional[bool] = False,
-            **kwargs,
+        self,
+        p: Tuple[float] = (1.6e3, -2 * 1.6e3, 1.6e3),
+        iota: Tuple[float] = (1, -0.67),
+        Rb: Tuple[float] = (3.51, 1.0, 0.106),
+        Zb: Tuple[float] = (0, 1.47, -0.16),
+        Ra: float = 3.51,
+        Za: float = 0.0,
+        phi_edge: float = 1,
+        wout_path: Optional[str] = None,
+        is_solovev: Optional[bool] = False,
+        **kwargs,
     ) -> None:
         super().__init__(**kwargs)
 
@@ -851,8 +855,8 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         rho = x[:, 0]
         #  Compute the flux surface profiles
         #  self.*_fn(s), where s = rho ** 2
-        p = self.p_fn(rho ** 2)
-        iota = self.iota_fn(rho ** 2)
+        p = self.p_fn(rho**2)
+        iota = self.iota_fn(rho**2)
         #  Compute geometry derivatives
         dR_dx = grad(R, x, create_graph=True)
         Rs = dR_dx[:, 0]
@@ -871,9 +875,9 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         bsupu = chis / jacobian
         bsupv = phis / jacobian * (1 + lu)
         #  Compute the metric tensor elements
-        guu = Ru ** 2 + Zu ** 2
+        guu = Ru**2 + Zu**2
         gus = Ru * Rs + Zu * Zs
-        gvv = R ** 2
+        gvv = R**2
         #  Compute the covariant magnetic field components
         bsubs = bsupu * gus
         bsubu = bsupu * guu
@@ -915,8 +919,8 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         rho = x[:, 0]
         #  Compute the flux surface profiles
         #  self.*_fn(s), where s = rho ** 2
-        p = self.p_fn(rho ** 2)
-        iota = self.iota_fn(rho ** 2)
+        p = self.p_fn(rho**2)
+        iota = self.iota_fn(rho**2)
         #  Compute geometry derivatives
         dR_dx = grad(R, x, create_graph=True)
         Rs = dR_dx[:, 0]
@@ -935,9 +939,9 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         bsupu = chis / jacobian
         bsupv = phis / jacobian * (1 + lu)
         #  Compute the metric tensor elements
-        guu = Ru ** 2 + Zu ** 2
+        guu = Ru**2 + Zu**2
         gus = Ru * Rs + Zu * Zs
-        gvv = R ** 2
+        gvv = R**2
         #  Compute the covariant magnetic field components
         bsubs = bsupu * gus
         bsubu = bsupu * guu
@@ -998,15 +1002,15 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         return grid
 
     def fluxsurfacesplot(
-            self,
-            x,
-            ax,
-            interpolation: Optional[str] = None,
-            phi: Optional[torch.Tensor] = None,
-            nplot: Optional[int] = 10,
-            scalar: Optional[torch.Tensor] = None,
-            contourf_kwargs: Optional[dict] = None,
-            **kwargs,
+        self,
+        x,
+        ax,
+        interpolation: Optional[str] = None,
+        phi: Optional[torch.Tensor] = None,
+        nplot: Optional[int] = 10,
+        scalar: Optional[torch.Tensor] = None,
+        contourf_kwargs: Optional[dict] = None,
+        **kwargs,
     ):
         """
         Plot flux surfaces on (R, Z) plane.
@@ -1053,14 +1057,14 @@ class InverseGradShafranovEquilibrium(Equilibrium):
                 Z_i = Z[idx_l]
                 if idx_l != len(phi) - 1:
                     R_i += (
-                            (p - phi[idx_l])
-                            / (phi[idx_u] - phi[idx_l])
-                            * (R[idx_u] - R[idx_l])
+                        (p - phi[idx_l])
+                        / (phi[idx_u] - phi[idx_l])
+                        * (R[idx_u] - R[idx_l])
                     )
                     Z_i += (
-                            (p - phi[idx_l])
-                            / (phi[idx_u] - phi[idx_l])
-                            * (Z[idx_u] - Z[idx_l])
+                        (p - phi[idx_l])
+                        / (phi[idx_u] - phi[idx_l])
+                        * (Z[idx_u] - Z[idx_l])
                     )
             #  Plot
             ax.plot(R_i, Z_i, **kwargs)
@@ -1087,27 +1091,26 @@ class Inverse3DMHD(Equilibrium):
     """
 
     def __init__(
-            self,
-            p: Tuple[float] = (3.4e3, -2 * 3.4e3, 3.4e3),
-            iota: Tuple[float] = (0.5, 1.5),
-            Rb: Tuple[tuple] = ((0., 10., 0.),  # m = 0 modes / mn: {0-1,00,01}
-                                (-0.3, -1., 0.)  # m = 1 modes / mn: {1-1,10,11}
-                                ),
-            Zb: Tuple[tuple] = (
-                    (0., 0., 0.),
-                    (-0.3, -1., 0.)
-            ),
-            Ra: float = 10.,
-            Za: float = 0.,
-            nfp: int = 19,
-            sym: bool = True,
-            phi_edge: float = 1,
-            wout_path: Optional[str] = None,
-            nzeta: Optional[int] = 32,
-            # highest positive poloidal and toroidal mode numbers
-            max_mpol: Optional[int] = 1,
-            max_ntor: Optional[int] = 1,
-            **kwargs,
+        self,
+        p: Tuple[float] = (3.4e3, -2 * 3.4e3, 3.4e3),
+        iota: Tuple[float] = (0.5, 1.5),
+        Rb: Tuple[tuple] = (
+            (0.0, 10.0, 0.0),  # m = 0 modes / mn: {0-1,00,01}
+            (-0.3, -1.0, 0.0),  # m = 1 modes / mn: {1-1,10,11}
+        ),
+        Zb: Tuple[tuple] = ((0.0, 0.0, 0.0), (-0.3, -1.0, 0.0)),
+        Ra: float = 10.0,
+        Za: float = 0.0,
+        nfp: int = 19,
+        sym: bool = True,
+        phi_edge: float = 1,
+        wout_path: Optional[str] = None,
+        ntheta: Optional[int] = 32,
+        nzeta: Optional[int] = 36,
+        # highest positive poloidal and toroidal mode numbers
+        max_mpol: Optional[int] = 1,
+        max_ntor: Optional[int] = 1,
+        **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self.p = torch.as_tensor(p)
@@ -1117,19 +1120,28 @@ class Inverse3DMHD(Equilibrium):
 
         self.max_mpol = max_mpol
         self.max_ntor = max_ntor
-        self.poloidal_modes = torch.arange(0, max_mpol + 1)# , dtype=dtype)  # [:, None]
-        self.toroidal_modes = torch.arange(-max_ntor, max_ntor + 1)# , dtype=dtype)  # [None, :]
+        self.poloidal_modes = torch.arange(
+            0, max_mpol + 1
+        )  # , dtype=dtype)  # [:, None]
+        self.toroidal_modes = torch.arange(
+            -max_ntor, max_ntor + 1
+        )  # , dtype=dtype)  # [None, :]
         self.mpol_shape = max_mpol + 1  # maximum of first fourier-modes matrix index
         self.ntor_shape = max_ntor * 2 + 1
 
         self.Rb = torch.as_tensor(Rb)
         self.Zb = torch.as_tensor(Zb)
-        # todo check if mpol_shape > self.Rb.shape[0] and same for ntor_shape
-        zero_pad = torch.nn.ZeroPad2d((0, (self.ntor_shape - self.Rb.shape[1]),
-                                       0, (self.mpol_shape - self.Rb.shape[0])))
-        self.Rb = zero_pad(self.Rb)
-        self.Zb = zero_pad(self.Zb)
-
+        # # todo check if mpol_shape > self.Rb.shape[0] and same for ntor_shape
+        # zero_pad = torch.nn.ZeroPad2d(
+        #     (
+        #         0,
+        #         (self.ntor_shape - self.Rb.shape[1]),
+        #         0,
+        #         (self.mpol_shape - self.Rb.shape[0]),
+        #     )
+        # )
+        # self.Rb = zero_pad(self.Rb)
+        # self.Zb = zero_pad(self.Zb)
 
         # axis initial guess
         self.Ra = Ra
@@ -1138,9 +1150,62 @@ class Inverse3DMHD(Equilibrium):
         pass
 
         self.phi_edge = phi_edge
+        self.ntheta = ntheta
         self.nzeta = nzeta
         self.costzmn = None
         self.sintzmn = None
+
+    @classmethod
+    def from_vmec(cls, wout_path, **kwargs):
+        """Instatiate Equilibrium from VMEC wout file."""
+
+        wout = get_wout(wout_path)
+
+        ns = wout["ns"][:].data.item()
+        nfp = wout["nfp"][:].data.item()
+
+        max_mpol = int(wout["xm"][:][-1])
+        max_ntor = int(wout["xn"][:][-1] / nfp)
+
+        pressure = wout["am"][:].data
+
+        #  Get scaling for pressure
+        p0 = wout["presf"][:][0]
+        pressure = pressure / pressure[0] * p0
+
+        #  Remove trailing zeros
+        pressure = pressure[pressure != 0].tolist()
+
+        iota = wout["ai"][:].data
+        iota = iota[iota != 0].tolist()
+
+        Rb = wout["rmnc"][-1].data
+        Zb = wout["zmns"][-1].data
+
+        #  Pad boundary
+        Rb = np.insert(Rb, 0, [0] * max_ntor).reshape(max_mpol + 1, -1)
+        Zb = np.insert(Zb, 0, [0] * max_ntor).reshape(max_mpol + 1, -1)
+
+        Ra = wout["raxis_cc"][:].data.tolist()
+        Za = wout["zaxis_cs"][:].data.tolist()
+
+        phi_edge = wout["phi"][-1].data.item()
+
+        return cls(
+            p=pressure,
+            iota=iota,
+            Rb=Rb,
+            Zb=Zb,
+            Ra=Ra,
+            Za=Za,
+            phi_edge=phi_edge,
+            wout_path=wout_path,
+            ns=ns,
+            nfp=nfp,
+            max_mpol=max_mpol,
+            max_ntor=max_ntor,
+            **kwargs,
+        )
 
     def __iter__(self):
 
@@ -1179,11 +1244,10 @@ class Inverse3DMHD(Equilibrium):
             #     * zeta[None, :, None, None]
             # )[None, :]
 
-
             # self.costzmn.requires_grad_()
             # self.sintzmn.requires_grad_()
 
-            yield domain, boundary, None, #None, None
+            yield domain, boundary, None,  # None, None
 
     # def b_fn(self, theta, zeta, xb):
     #     #  TODO tensorize with pytorch / or remove
@@ -1218,8 +1282,8 @@ class Inverse3DMHD(Equilibrium):
         rho = x[:, 0]
         #  Compute the flux surface profiles
         #  self.*_fn(s), where s = rho ** 2
-        p = self.p_fn(rho ** 2)
-        iota = self.iota_fn(rho ** 2)
+        p = self.p_fn(rho**2)
+        iota = self.iota_fn(rho**2)
         dR_dx = grad(R, x, create_graph=True)
         # {s,u,v} = {rho, theta, ζ}
         Rs = dR_dx[:, 0]
@@ -1240,11 +1304,11 @@ class Inverse3DMHD(Equilibrium):
         bsupu = 1 / jacobian * (chis - phis * lv)
         bsupv = phis / jacobian * (1 + lu)
         #  Compute the metric tensor elements
-        guu = Ru ** 2 + Zu ** 2
+        guu = Ru**2 + Zu**2
         gus = Ru * Rs + Zu * Zs
         gvs = Rv * Rs + Zv * Zs
         gvu = Ru * Rv + Zu * Zv
-        gvv = Rv ** 2 + R ** 2 + Zv ** 2
+        gvv = Rv**2 + R**2 + Zv**2
         #  compute covariant mag. field components
         bsubs = bsupu * gus + bsupv * gvs
         bsubu = bsupu * guu + bsupv * gvu
@@ -1254,25 +1318,42 @@ class Inverse3DMHD(Equilibrium):
         dbsubu_dx = grad(bsubu, x, create_graph=True)
         dbsubv_dx = grad(bsubv, x, create_graph=True)
         ps = grad(p, x, create_graph=True)[:, 0]
-        f_rho = bsupv * (dbsubs_dx[:, 2] - dbsubv_dx[:, 0]) - \
-                bsupu * (dbsubu_dx[:, 0] - dbsubs_dx[:, 1]) - mu0 * ps
+        f_rho = (
+            bsupv * (dbsubs_dx[:, 2] - dbsubv_dx[:, 0])
+            - bsupu * (dbsubu_dx[:, 0] - dbsubs_dx[:, 1])
+            - mu0 * ps
+        )
         #  compute mu * f_beta
         f_beta = (dbsubv_dx[:, 1] - dbsubu_dx[:, 2]) / jacobian
         #  compute squared norm of forces in cartesian coords
-        _theta = (Zv * Rs - Rv * Zs)
-        _zeta = (Zs * Ru - Zu * Rs)
-        _jaco_fac = 1 / (jacobian ** 2)
-        grad_rho = _jaco_fac * (R ** 2 * (Ru ** 2 + Zu ** 2) +
-                                (Zu * Rv - Zv * Ru) ** 2)
-        grad_theta = _jaco_fac * (R ** 2 * (Zs ** 2 + Rs ** 2) + _theta ** 2)
-        grad_zeta = _jaco_fac * _zeta ** 2
+        _theta = Zv * Rs - Rv * Zs
+        _zeta = Zs * Ru - Zu * Rs
+        _jaco_fac = 1 / (jacobian**2)
+        grad_rho = _jaco_fac * (R**2 * (Ru**2 + Zu**2) + (Zu * Rv - Zv * Ru) ** 2)
+        grad_theta = _jaco_fac * (R**2 * (Zs**2 + Rs**2) + _theta**2)
+        grad_zeta = _jaco_fac * _zeta**2
         grad_thetazeta = _jaco_fac * _zeta * _theta
         # remove the jacobian
-        beta = jacobian ** 2 * \
-               (grad_theta * bsupv ** 2 +
-                grad_zeta * bsupu ** 2 -
-                2 * grad_thetazeta * bsupu * bsupv)
-        fsq = f_rho ** 2 * grad_rho + f_beta ** 2 * beta
+        beta = jacobian**2 * (
+            grad_theta * bsupv**2
+            + grad_zeta * bsupu**2
+            - 2 * grad_thetazeta * bsupu * bsupv
+        )
+        fsq = f_rho**2 * grad_rho + f_beta**2 * beta
+        #  TODO: remove me, here only for debugging
+        # import matplotlib.pyplot as plt
+
+        # plt.plot(
+        #     rho[:: self.ntheta * self.nzeta].detach(),
+        #     (fsq * jacobian.abs())
+        #     .view(-1, self.ntheta, self.nzeta)
+        #     .detach()
+        #     .mean(dim=(1, 2)),
+        # )
+        # plt.x_label(r"\rho")
+        # plt.yscale("log")
+        # plt.title(r"$\rangle f^2 \langle$")
+        # plt.show()
         return (fsq * jacobian.abs()).sum()
 
     def _mae_pde_loss(self, x: Tensor, RlZ: Tensor) -> Tensor:
@@ -1286,16 +1367,16 @@ class Inverse3DMHD(Equilibrium):
         theta = x[:, 1].view(-1, 1)
         zeta = x[:, 2].view(-1, 1)
 
-        f = self.poloidal_modes[:, None] * theta[:, None] - \
-            self.nfp * self.toroidal_modes[None, :] * zeta[:, None]
+        f = (
+            self.poloidal_modes[:, None] * theta[:, None]
+            - self.nfp * self.toroidal_modes[None, :] * zeta[:, None]
+        )
 
         costzmn = torch.cos(f)
         sintzmn = torch.sin(f)
 
-        Rb = torch.einsum("smn, smn -> s",
-                          costzmn, self.Rb.unsqueeze(0)).contiguous()
-        Zb = torch.einsum("smn, smn -> s",
-                          sintzmn, self.Zb.unsqueeze(0)).contiguous()
+        Rb = torch.einsum("smn, smn -> s", costzmn, self.Rb.unsqueeze(0)).contiguous()
+        Zb = torch.einsum("smn, smn -> s", sintzmn, self.Zb.unsqueeze(0)).contiguous()
 
         R = RlZ[:, 0]
         Z = RlZ[:, 2]
@@ -1303,3 +1384,15 @@ class Inverse3DMHD(Equilibrium):
 
     def _axis_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
         raise NotImplementedError()
+
+    def grid(self, ns: int = None, normalized: bool = None) -> Tensor:
+
+        if ns is None:
+            ns = self.ns
+
+        rho = torch.linspace(0, 1, ns)
+        theta = (2 * torch.linspace(0, 1, self.ntheta) - 1) * math.pi
+        zeta = (torch.linspace(0, 1, self.nzeta)) * math.pi / self.nfp
+        grid = torch.cartesian_prod(rho, theta, zeta)
+
+        return grid
