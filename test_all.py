@@ -193,36 +193,38 @@ def test_grad_shafranov_eps(noise, reduction, fsq0, normalized):
         assert eps > noise
 
 
-#  TODO: improve fitting of RlZ, especially for lambda
+#  TODO: improve interpolation for lmns and zmns
 @pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc", "data/wout_SOLOVEV.nc"))
 @pytest.mark.parametrize("ntheta", (32,))
-@pytest.mark.parametrize("s", range(1024))
+@pytest.mark.parametrize("js", range(256))
 @pytest.mark.parametrize("xmn", ("rmnc", "lmns", "zmns"))
-def test_get_RlZ_from_wout(wout_path, ntheta, xmn, s):
+def test_get_RlZ_from_wout(wout_path, ntheta, xmn, js):
 
     wout = get_wout(wout_path)
 
     equi = InverseGradShafranovEquilibrium.from_vmec(wout_path)
     equi.ntheta = ntheta
-    grid = equi.grid().to(torch.float64)
-
-    #  Get quantity at the same radial location
-    rho_idx = int(s / 1024 * equi.ndomain)
-    rho = grid[:: equi.ntheta, 0][rho_idx]
 
     ns = wout["ns"][:].data.item()
-    if xmn == "lmns":
-        phi = torch.zeros(ns)
-        phi[1:] = torch.linspace(0, 1, ns)[:-1] - 0.5 / (ns - 1)
-    else:
-        phi = torch.linspace(0, 1, ns)
 
-    phi_idx = (phi - rho**2).abs().argmin()
-
-    #  Skip if radial location does not match
-    if (phi[phi_idx] - rho**2).abs() > 1e-4:
+    #  Skip tests if we have reached the boundary
+    if js >= ns:
         return
 
+    #  Create VMEC radial grid in phi
+    if xmn == "lmns":
+        phi = torch.zeros(ns)
+        phi[1:] = torch.linspace(0, 1, ns)[1:] - 0.5 / (ns - 1)
+    else:
+        phi = torch.linspace(0, 1, ns)
+    rho = torch.sqrt(phi)
+
+    #  Set grid as from VMEC
+    grid = equi.grid()
+    grid[:, 0] = rho.repeat_interleave(equi.ntheta)
+    grid = grid.to(torch.float64)
+
+    #  Get differentiable quantity
     RlZ = get_RlZ_from_wout(grid, wout_path)
     if xmn == "rmnc":
         x = RlZ[:, 0]
@@ -232,6 +234,7 @@ def test_get_RlZ_from_wout(wout_path, ntheta, xmn, s):
         x = RlZ[:, 2]
     x = x.view(-1, equi.ntheta)
 
+    #  Get quantity from VMEC
     basis = "cos" if xmn == "rmnc" else "sin"
     vmec_x = ift(
         torch.as_tensor(wout[xmn][:]).clone(),
@@ -242,8 +245,8 @@ def test_get_RlZ_from_wout(wout_path, ntheta, xmn, s):
     #  Check if quantiies are below 1e-3 m for R and Z,
     #  and below 1e-3 rad for lambda
     assert torch.allclose(
-        x[rho_idx], vmec_x[phi_idx], rtol=0, atol=1e-3
-    ), f"mae={(x[rho_idx] - vmec_x[phi_idx]).abs().mean():.2e} at rho={rho:.2f}"
+        x[js], vmec_x[js], rtol=0, atol=1e-3
+    ), f"mae={(x[js] - vmec_x[js]).abs().mean():.2e} at rho={rho[js]:.4f}"
 
 
 @pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc", "data/wout_SOLOVEV.nc"))
@@ -266,41 +269,38 @@ def test_inverse_grad_shafranov_pde_closure(wout_path, ntheta):
     assert mean_f < 1e-3
 
 
-#  TODO: improve jacobian
+#  TODO: improve jacobian, especially close to the axis
 @pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc", "data/wout_SOLOVEV.nc"))
 @pytest.mark.parametrize("ntheta", (32,))
-@pytest.mark.parametrize("s", range(512))
-def test_inverse_grad_shafranov_jacobian(wout_path, ntheta, s):
+@pytest.mark.parametrize("js", range(1, 256))
+def test_inverse_grad_shafranov_jacobian(wout_path, ntheta, js):
 
     wout = get_wout(wout_path)
 
     equi = InverseGradShafranovEquilibrium.from_vmec(wout_path)
     equi.ntheta = ntheta
-    x = equi.grid().to(torch.float64)
-
-    #  Get quantity at the same radial location
-    rho_idx = int(s / 512 * equi.ndomain)
-    rho = x[:: equi.ntheta, 0][rho_idx]
 
     ns = wout["ns"][:].data.item()
+
+    #  Skip tests if we have reached the boundary
+    if js >= ns:
+        return
+
+    #  Create VMEC radial grid in phi
+    #  Half-mesh since jacobian is computed on half-mesh
     phi = torch.zeros(ns)
-    phi[1:] = torch.linspace(0, 1, ns)[:-1] - 0.5 / (ns - 1)
+    phi[1:] = torch.linspace(0, 1, ns)[1:] - 0.5 / (ns - 1)
+    rho = torch.sqrt(phi)
 
-    phi_idx = (phi - rho**2).abs().argmin()
-
-    #  Skip if radial location does not match
-    if (phi[phi_idx] - rho**2).abs() > 1e-4:
-        return
-
-    #  Skip on axis
-    if phi[phi_idx] == 0:
-        return
-
+    #  Set grid as from VMEC
+    x = equi.grid()
+    x[:, 0] = rho.repeat_interleave(equi.ntheta)
+    x = x.to(torch.float64)
     x.requires_grad_()
+
     rho = x[:, 0]
     theta = x[:, 1]
 
-    #  Use simply polynomials to avoid derivative issues
     RlZ = get_RlZ_from_wout(x, wout_path)
 
     #  Get differentiable jacobian
@@ -324,5 +324,5 @@ def test_inverse_grad_shafranov_jacobian(wout_path, ntheta, s):
         vmec_jacobian = ift(gmnc, basis="cos", ntheta=theta[: equi.ntheta])
 
     assert torch.allclose(
-        jacobian[rho_idx], vmec_jacobian[phi_idx], atol=1e-2, rtol=0
-    ), f"mae={(jacobian[rho_idx] - vmec_jacobian[phi_idx]).abs().mean():.2e} at rho={rho[::equi.ntheta][rho_idx]:.2f}"
+        jacobian[js], vmec_jacobian[js], atol=1e-2, rtol=0
+    ), f"mae={(jacobian[js] - vmec_jacobian[js]).abs().mean():.2e} at rho={rho[::equi.ntheta][js]:.4f}"
