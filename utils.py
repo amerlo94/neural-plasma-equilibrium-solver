@@ -178,7 +178,7 @@ def get_RlZ_from_wout(x: Tensor, wout_path: str, mpol: Optional[int] = 5):
     Args:
         x (torch.Tensor): the rho-theta grid on which to compute the RlZ tensor.
         wout_path (str): the wout file path.
-        mpol (int, optional): the highest poloidal modes to use to build the RlZ tensor. Default: 2.
+        mpol (int, optional): the highest poloidal modes to use to build the RlZ tensor. Default: 5.
     """
 
     wout = get_wout(wout_path)
@@ -186,12 +186,11 @@ def get_RlZ_from_wout(x: Tensor, wout_path: str, mpol: Optional[int] = 5):
     rho = x[:, 0]
     theta = x[:, 1]
 
-    #  Build differentiable solution
     ns = wout["ns"][:].data.item()
     hs = 1 / (ns - 1)
     phi = torch.linspace(0, 1, ns)
 
-    def get_fit(x: str):
+    def interp_xmn(x: str):
         xmn = torch.from_numpy(wout[x][:].data)
         xmns = []
         #  lmns is defined on half-mesh
@@ -216,6 +215,8 @@ def get_RlZ_from_wout(x: Tensor, wout_path: str, mpol: Optional[int] = 5):
                 idx_l[idx_l == -1] = 1
                 idx_l[idx_l == 0] = 1
             idx_l[idx_l == ns - 2] = ns - 3
+            #  Coefficients for the quadratic interpolation
+            #  f(x) = b0 + b1 * (x - x0) + b2 * (x - x0) * (x - x1)
             b0 = xmn_[idx_l, m]
             b1 = (xmn_[idx_l + 1, m] - xmn_[idx_l, m]) / hs
             b2 = (xmn_[idx_l + 2, m] - 2 * xmn_[idx_l + 1, m] + xmn_[idx_l, m]) / (
@@ -230,13 +231,14 @@ def get_RlZ_from_wout(x: Tensor, wout_path: str, mpol: Optional[int] = 5):
             if m != 0:
                 #  TODO: this has no effect due to line 216 and 217
                 interp[idx_l == 0] = xmn[1, m] / phi[1] ** (m / 2)
+            #  Add back the rho**m factor
             interp *= rho**m
             xmns.append(interp)
         return torch.stack(xmns, dim=-1)
 
-    rmnc = get_fit("rmnc")
-    lmns = get_fit("lmns")
-    zmns = get_fit("zmns")
+    rmnc = interp_xmn("rmnc")
+    lmns = interp_xmn("lmns")
+    zmns = interp_xmn("zmns")
 
     def get_x(xm, basis):
         mpol = xm.shape[-1]
