@@ -9,6 +9,7 @@ from physics import (
     HighBetaEquilibrium,
     GradShafranovEquilibrium,
     InverseGradShafranovEquilibrium,
+    Inverse3DMHD,
 )
 from utils import grad, get_profile_from_wout, ift, get_RlZ_from_wout, get_wout
 
@@ -326,3 +327,60 @@ def test_inverse_grad_shafranov_jacobian(wout_path, ntheta, js):
     assert torch.allclose(
         jacobian[js], vmec_jacobian[js], atol=1e-2, rtol=0
     ), f"mae={(jacobian[js] - vmec_jacobian[js]).abs().mean():.2e} at rho={rho[::equi.ntheta][js]:.4f}"
+
+
+#  TODO: fix lmns[js=1] and zmns
+@pytest.mark.parametrize("wout_path", ("data/wout_HELIOTRON.nc",))
+@pytest.mark.parametrize("ntheta", (16,))
+@pytest.mark.parametrize("nzeta", (18,))
+@pytest.mark.parametrize("xmn", ("rmnc", "lmns", "zmns"))
+def test_get_3DRlZ_from_wout(wout_path, ntheta, nzeta, xmn):
+
+    wout = get_wout(wout_path)
+
+    ns = wout["ns"][:].data.item()
+    nfp = wout["nfp"][:].data.item()
+
+    #  Create VMEC radial grid in phi
+    if xmn == "lmns":
+        phi = torch.zeros(ns)
+        phi[1:] = torch.linspace(0, 1, ns)[1:] - 0.5 / (ns - 1)
+    else:
+        phi = torch.linspace(0, 1, ns)
+
+    #  Define grid from VMEC
+    rho = torch.sqrt(phi)
+    theta = (2 * torch.linspace(0, 1, ntheta) - 1) * torch.pi
+    zeta = (torch.linspace(0, 1, nzeta)) * torch.pi / nfp
+
+    grid = torch.cartesian_prod(rho, theta, zeta).to(torch.float64)
+
+    #  Get differentiable quantity
+    RlZ = get_RlZ_from_wout(grid, wout_path)
+    if xmn == "rmnc":
+        x = RlZ[:, 0]
+    elif xmn == "lmns":
+        x = RlZ[:, 1]
+    elif xmn == "zmns":
+        x = RlZ[:, 2]
+    x = x.view(-1, ntheta, nzeta)
+
+    #  Get quantity from VMEC
+    #  Put this into an optimized ift using VMEC scheme
+    xm = torch.from_numpy(wout["xm"][:].data)
+    xn = torch.from_numpy(wout["xn"][:].data)
+    angle = (
+        theta[:, None, None] * xm[None, None, :]
+        - zeta[None, :, None] * xn[None, None, :]
+    )
+    if xmn == "rmnc":
+        tzmn = torch.cos(angle)
+    else:
+        tzmn = torch.sin(angle)
+    xmn = torch.as_tensor(wout[xmn][:]).clone()
+    vmec_x = torch.einsum("stzf,sf->stz", tzmn[None, ...], xmn)
+
+    for js in range(ns):
+        assert torch.allclose(
+            x[js], vmec_x[js], rtol=0, atol=1e-6
+        ), f"mae={(x[js] - vmec_x[js]).abs().mean():.2e} at rho={rho[js]:.4f}"

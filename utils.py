@@ -1,6 +1,7 @@
 """Utility functions."""
 
 import math
+
 # from functools import cache
 from typing import Optional, Union, List, Tuple
 
@@ -137,19 +138,20 @@ def get_fourier_basis(
      where grid is (rho, theta, zeta) = (s, u, v) in coordinates
     """
 
-    poloidal_modes = torch.arange(0, mpol + 1, dtype=dtype)# [:, None]
-    toroidal_modes = torch.arange(-ntor, ntor + 1, dtype=dtype)# [None, :]
+    poloidal_modes = torch.arange(0, mpol + 1, dtype=dtype)  # [:, None]
+    toroidal_modes = torch.arange(-ntor, ntor + 1, dtype=dtype)  # [None, :]
 
     if grid is not None:
         #  same stencil generation method as in physics/Inverse3DMHD.__iter__
         ntmnz = ntheta * nzeta
-        thetas = grid[:, 1]#[:ntmnz:ntheta]
-        zetas = grid[:, 2]#[:ntmnz:nzeta]
+        thetas = grid[:, 1]  # [:ntmnz:ntheta]
+        zetas = grid[:, 2]  # [:ntmnz:nzeta]
     else:
         if include_endpoint:
             thetas = torch.linspace(0, 2 * math.pi, ntheta + 1, dtype=dtype)[:-1]
             zetas = torch.linspace(
-                0, 2 * math.pi / num_field_period, nzeta + 1, dtype=dtype)[:-1]
+                0, 2 * math.pi / num_field_period, nzeta + 1, dtype=dtype
+            )[:-1]
         else:
             thetas = torch.linspace(0, 2 * math.pi, ntheta, dtype=dtype)
             zetas = torch.linspace(
@@ -158,7 +160,6 @@ def get_fourier_basis(
 
     costzmn = torch.empty(ntheta, nzeta, mpol + 1, 2 * ntor + 1, dtype=dtype)
     sintzmn = torch.empty(ntheta, nzeta, mpol + 1, 2 * ntor + 1, dtype=dtype)
-
 
     #           takes t>30s!
     # costzmn = torch.cos(
@@ -174,7 +175,6 @@ def get_fourier_basis(
     #     * zetas[None, :, None, None]
     # )
     # print("end")
-
 
     for i, theta in enumerate(thetas):
         for j, zeta in enumerate(zetas):
@@ -275,7 +275,6 @@ def ift(
     ).contiguous()
 
 
-
 def get_solovev_boundary(
     Ra: float,
     p0: float,
@@ -335,7 +334,7 @@ def get_solovev_boundary(
     return Rb.detach()
 
 
-def get_RlZ_from_wout(x: Tensor, wout_path: str, mpol: Optional[int] = 5):
+def get_RlZ_from_wout(x: Tensor, wout_path: str):
     """
     Compute flux surfaces geometry on a given grid from a VMEC wout file.
 
@@ -349,10 +348,14 @@ def get_RlZ_from_wout(x: Tensor, wout_path: str, mpol: Optional[int] = 5):
 
     rho = x[:, 0]
     theta = x[:, 1]
+    zeta = x[:, 2]
 
     ns = wout["ns"][:].data.item()
     hs = 1 / (ns - 1)
     phi = torch.linspace(0, 1, ns)
+
+    xm = torch.from_numpy(wout["xm"][:].data)
+    xn = torch.from_numpy(wout["xn"][:].data)
 
     def interp_xmn(x: str):
         xmn = torch.from_numpy(wout[x][:].data)
@@ -360,11 +363,12 @@ def get_RlZ_from_wout(x: Tensor, wout_path: str, mpol: Optional[int] = 5):
         #  lmns is defined on half-mesh
         if x == "lmns":
             phi[1:] = torch.linspace(0, 1, ns)[1:] - 0.5 / (ns - 1)
-        for m in range(min(xmn.shape[1], mpol + 1)):
+        for mn in range(xmn.shape[1]):
+            m = int(xm[mn])
             #  Interpolate xmn / rho ** m
-            xmn_ = xmn
+            xmn_ = xmn[:, mn]
             if m != 0:
-                xmn_ = xmn / torch.sqrt(phi)[:, None] ** m
+                xmn_ = xmn[:, mn] / torch.sqrt(phi) ** m
             #  Quadratic interpolation
             idx_l = (
                 torch.argmin(
@@ -381,11 +385,9 @@ def get_RlZ_from_wout(x: Tensor, wout_path: str, mpol: Optional[int] = 5):
             idx_l[idx_l == ns - 2] = ns - 3
             #  Coefficients for the quadratic interpolation
             #  f(x) = b0 + b1 * (x - x0) + b2 * (x - x0) * (x - x1)
-            b0 = xmn_[idx_l, m]
-            b1 = (xmn_[idx_l + 1, m] - xmn_[idx_l, m]) / hs
-            b2 = (xmn_[idx_l + 2, m] - 2 * xmn_[idx_l + 1, m] + xmn_[idx_l, m]) / (
-                2 * hs**2
-            )
+            b0 = xmn_[idx_l]
+            b1 = (xmn_[idx_l + 1] - xmn_[idx_l]) / hs
+            b2 = (xmn_[idx_l + 2] - 2 * xmn_[idx_l + 1] + xmn_[idx_l]) / (2 * hs**2)
             interp = (
                 b0
                 + b1 * (rho**2 - phi[idx_l])
@@ -404,17 +406,17 @@ def get_RlZ_from_wout(x: Tensor, wout_path: str, mpol: Optional[int] = 5):
     lmns = interp_xmn("lmns")
     zmns = interp_xmn("zmns")
 
-    def get_x(xm, basis):
-        mpol = xm.shape[-1]
-        tm = torch.outer(theta, torch.arange(mpol, dtype=xm.dtype))
+    def get_x(xf, basis):
+        angle = theta[:, None] * xm[None, :]
+        angle -= zeta[:, None] * xn[None, :]
         if basis == "cos":
-            tm = torch.cos(tm)
+            gf = torch.cos(angle)
         else:
-            tm = torch.sin(tm)
-        return (tm * xm).sum(dim=1).view(-1, 1)
+            gf = torch.sin(angle)
+        return (gf * xf).sum(dim=1)
 
     R = get_x(rmnc, basis="cos")
     l = get_x(lmns, basis="sin")
     Z = get_x(zmns, basis="sin")
 
-    return torch.cat([R, l, Z], dim=-1)
+    return torch.stack([R, l, Z], dim=-1)
