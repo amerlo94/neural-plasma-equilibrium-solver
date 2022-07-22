@@ -891,14 +891,14 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         #  Compute the squared norm of the contravariant metric tensor
         #  grad_rho**2 == gsupss
         #  grad_theta**2 == gsupuu
-        grad_rho = R ** 2 / jacobian ** 2 * (Ru ** 2 + Zu ** 2)
-        grad_theta = R ** 2 / jacobian ** 2 * (Rs ** 2 + Zs ** 2)
-        gsupsu = R ** 2 / jacobian ** 2 * (Rs * Ru + Zs * Zu)
+        grad_rho = R**2 / jacobian**2 * (Ru**2 + Zu**2)
+        grad_theta = R**2 / jacobian**2 * (Rs**2 + Zs**2)
+        gsupsu = R**2 / jacobian**2 * (Rs * Ru + Zs * Zu)
         #  Compute the squared L2-norm of F
         fsq = (
-                f_rho ** 2 * grad_rho
-                + f_theta ** 2 * grad_theta
-                + 2 * f_rho * f_theta * gsupsu
+            f_rho**2 * grad_rho
+            + f_theta**2 * grad_theta
+            + 2 * f_rho * f_theta * gsupsu
         )
         #  Compute the volume-averaged ||f||2, factors missing:
         #  1. in MKS units, there should be a 1 / mu0**2 factor
@@ -953,14 +953,14 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         bsubvu = dbsubv_dx[:, 1]
         f_theta = bsubvu * bsupv
         #  Compute the squared norm of the contravariant metric tensor
-        grad_rho = R ** 2 / jacobian ** 2 * (Ru ** 2 + Zu ** 2)
-        grad_theta = R ** 2 / jacobian ** 2 * (Rs ** 2 + Zs ** 2)
-        gsupsu = R ** 2 / jacobian ** 2 * (Rs * Ru + Zs * Zu)
+        grad_rho = R**2 / jacobian**2 * (Ru**2 + Zu**2)
+        grad_theta = R**2 / jacobian**2 * (Rs**2 + Zs**2)
+        gsupsu = R**2 / jacobian**2 * (Rs * Ru + Zs * Zu)
         #  Compute the squared L2-norm of F
         fsq = (
-                f_rho ** 2 * grad_rho
-                + f_theta ** 2 * grad_theta
-                + 2 * f_rho * f_theta * gsupsu
+            f_rho**2 * grad_rho
+            + f_theta**2 * grad_theta
+            + 2 * f_rho * f_theta * gsupsu
         )
         gradpsq = (mu0 * ps) ** 2
         if reduction is None:
