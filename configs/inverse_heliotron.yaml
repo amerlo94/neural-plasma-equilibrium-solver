@@ -8,18 +8,18 @@ learning_rate: 0.1
 equilibrium:
   _target_: inverse-3d-mhd
   nfp: 19
-  p: [3400, -6800, 3400]
-  iota: [0.5, 1.5]
-  Rb: [ [0., 10., 0.], [-0.3, -1., 0.] ]
-  Zb: [ [0., 0., 0.], [-0.3, -1., 0.] ]
+  p: [18000, -36000, 18000]
+  iota: [-1.0, -1.5]
+  Rb: [ [0., 10., 0.], [0.0, 1., 0.3] ]
+  Zb: [ [0., 0., 0.], [0, 1., -0.3] ]
   Ra: 10
   Za: 0.0
   phi_edge: 1.0
-  wout_path: data/wout_heliotron.nc
+  wout_path: data/wout_HELIOTRON.nc
   sym: true
-  ns: 16
-  ntheta: 32
-  nzeta: 36
+  ns: 51
+  ntheta: 16
+  nzeta: 18
   max_mpol: 2
-  max_ntor: 2
+  max_ntor: 1
 

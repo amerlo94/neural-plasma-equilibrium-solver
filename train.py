@@ -10,14 +10,24 @@ import torch
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 
-from models import HighBetaMLP, GradShafranovMLP, InverseGradShafranovMLP, Inverse3DMHDMLP
+from models import (
+    HighBetaMLP,
+    GradShafranovMLP,
+    InverseGradShafranovMLP,
+    Inverse3DMHDMLP,
+)
 from physics import (
     HighBetaEquilibrium,
     GradShafranovEquilibrium,
     InverseGradShafranovEquilibrium,
-    Inverse3DMHD
+    Inverse3DMHD,
 )
-from utils import log_gradients, mae, get_flux_surfaces_from_wout
+from utils import (
+    log_gradients,
+    mae,
+    get_flux_surfaces_from_wout,
+    get_3d_flux_surfaces_from_wout,
+)
 
 torch.set_default_tensor_type(torch.DoubleTensor)
 
@@ -58,10 +68,17 @@ def get_equilibrium_and_model(**equi_kws):
     if target == "inverse-3d-mhd":
         equi = Inverse3DMHD(**_equi_kws)
         if not equi.normalized:
-            model_kws = {"Rb": equi.Rb, "Zb": equi.Zb, "ns": equi.ns,
-                         "ntheta": equi.ntheta, "nzeta": equi.nzeta,
-                         "nfp": equi.nfp, "max_mpol": equi.max_mpol,
-                         "max_ntor": equi.max_ntor, "sym": equi.sym}
+            model_kws = {
+                "Rb": equi.Rb,
+                "Zb": equi.Zb,
+                "ns": equi.ns,
+                "ntheta": equi.ntheta,
+                "nzeta": equi.nzeta,
+                "nfp": equi.nfp,
+                "max_mpol": equi.max_mpol,
+                "max_ntor": equi.max_ntor,
+                "sym": equi.sym,
+            }
         model = Inverse3DMHDMLP(**model_kws)
         return equi, model
 
@@ -124,7 +141,6 @@ def train(
 
             x_domain.requires_grad_()
             x_boundary.requires_grad_()
-
 
             def closure():
                 optimizer.zero_grad()
@@ -218,7 +234,7 @@ def train(
 
     #  Plot magnetic flux
     fig, ax = plt.subplots(1, 1, tight_layout=True)
-    if target == "inverse-grad-shafranov":
+    if target == "inverse-grad-shafranov" or "inverse-3d-mhd":
         RlZ_hat = model(grid)
         equi.fluxsurfacesplot(
             RlZ_hat[:, [0, 2]], ax, linestyle="dashed", interpolation="linear"
@@ -237,6 +253,16 @@ def train(
         rz, psi = get_flux_surfaces_from_wout(equi.wout_path)
         equi.fluxsurfacesplot(
             rz, ax, phi=torch.linspace(0, 1, psi.shape[0]), interpolation="linear"
+        )
+    if target == "inverse-3d-mhd" and equi.wout_path is not None:
+        #  Plot VMEC flux surfaces
+        rz, phi = get_3d_flux_surfaces_from_wout(equi.wout_path)
+        equi.fluxsurfacesplot(
+            rz,
+            ax,
+            phi=torch.linspace(0, 1, phi.shape[0]),
+            interpolation="linear",
+            linestyle="solid",
         )
 
     #  Plot scatter plot
@@ -263,17 +289,16 @@ def train(
         equi.fluxsurfacesplot(
             psi_hat[:, [0, 2]],
             ax,
-            #scalar=equi.eps(x, psi_hat, reduction=None),
-
+            # scalar=equi.eps(x, psi_hat, reduction=None),
             phi=x[:: equi.ntheta, 0] ** 2,
             contourf_kwargs={"locator": ticker.LogLocator()},
         )
 
     #  Show figures
-    ax.set_xlabel("R [m]")
-    ax.set_ylabel("Z [m]")
-    ax.set_xlim(-1.75, 1.75)
-    ax.set_ylim(2., 6.)
+    # ax.set_xlabel("R [m]")
+    # ax.set_ylabel("Z [m]")
+    # ax.set_xlim(-1.75, 1.75)
+    # ax.set_ylim(2.0, 6.0)
     plt.show()
 
 

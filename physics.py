@@ -1131,17 +1131,17 @@ class Inverse3DMHD(Equilibrium):
 
         self.Rb = torch.as_tensor(Rb)
         self.Zb = torch.as_tensor(Zb)
-        # # todo check if mpol_shape > self.Rb.shape[0] and same for ntor_shape
-        # zero_pad = torch.nn.ZeroPad2d(
-        #     (
-        #         0,
-        #         (self.ntor_shape - self.Rb.shape[1]),
-        #         0,
-        #         (self.mpol_shape - self.Rb.shape[0]),
-        #     )
-        # )
-        # self.Rb = zero_pad(self.Rb)
-        # self.Zb = zero_pad(self.Zb)
+        # todo check if mpol_shape > self.Rb.shape[0] and same for ntor_shape
+        zero_pad = torch.nn.ZeroPad2d(
+            (
+                0,
+                (self.ntor_shape - self.Rb.shape[1]),
+                0,
+                (self.mpol_shape - self.Rb.shape[0]),
+            )
+        )
+        self.Rb = zero_pad(self.Rb)
+        self.Zb = zero_pad(self.Zb)
 
         # axis initial guess
         self.Ra = Ra
@@ -1154,6 +1154,8 @@ class Inverse3DMHD(Equilibrium):
         self.nzeta = nzeta
         self.costzmn = None
         self.sintzmn = None
+
+        self.wout_path = wout_path
 
     @classmethod
     def from_vmec(cls, wout_path, **kwargs):
@@ -1350,9 +1352,9 @@ class Inverse3DMHD(Equilibrium):
         #     .detach()
         #     .mean(dim=(1, 2)),
         # )
-        # plt.x_label(r"\rho")
+        # plt.xlabel(r"$\rho$")
         # plt.yscale("log")
-        # plt.title(r"$\rangle f^2 \langle$")
+        # plt.title(r"$\langle f^2 \rangle$")
         # plt.show()
         return (fsq * jacobian.abs()).sum()
 
@@ -1396,3 +1398,89 @@ class Inverse3DMHD(Equilibrium):
         grid = torch.cartesian_prod(rho, theta, zeta)
 
         return grid
+
+    def fluxsurfacesplot(
+        self,
+        x,
+        ax,
+        interpolation: Optional[str] = None,
+        phi: Optional[torch.Tensor] = None,
+        nplot: Optional[int] = 10,
+        scalar: Optional[torch.Tensor] = None,
+        contourf_kwargs: Optional[dict] = None,
+        **kwargs,
+    ):
+        """
+        Plot flux surfaces on (R, Z) plane.
+
+        TODO: finish to implement me!
+        TODO: improve ns and nplot handling.
+        """
+
+        assert len(x.shape) == 2
+        assert interpolation in (None, "linear")
+
+        if phi is None:
+            #  Infer number of flux surfaces
+            ns = int(x.shape[0] / self.ntheta / self.nzeta)
+            #  Assume flux surfaces defined on rho
+            phi = torch.linspace(0, 1, ns) ** 2
+        else:
+            ns = phi.shape[0]
+            phi = phi.detach()
+
+        x = x.detach()
+
+        #  Create plotting grid
+        R = x[:, 0].view(ns, self.ntheta, self.nzeta)
+        Z = x[:, 1].view(ns, self.ntheta, self.nzeta)
+
+        if nplot > ns:
+            nplot = ns
+
+        #  Plot nplot + 1 flux surfaces equally spaced in phi
+        phi_ii = torch.linspace(0, phi[-1].item(), nplot + 1)
+        for p in phi_ii:
+            if interpolation is None:
+                #  Use closest available flux surface
+                idx = torch.argmin((phi - p).abs())
+                R_i = R[idx]
+                Z_i = Z[idx]
+                phi_i = phi[idx]
+            elif interpolation == "linear":
+                #  Perform linear interpolation
+                idx_l = torch.argmin(torch.relu(p - phi))
+                idx_u = idx_l + 1
+                phi_i = p
+                R_i = R[idx_l]
+                Z_i = Z[idx_l]
+                if idx_l != len(phi) - 1:
+                    R_i += (
+                        (p - phi[idx_l])
+                        / (phi[idx_u] - phi[idx_l])
+                        * (R[idx_u] - R[idx_l])
+                    )
+                    Z_i += (
+                        (p - phi[idx_l])
+                        / (phi[idx_u] - phi[idx_l])
+                        * (Z[idx_u] - Z[idx_l])
+                    )
+            #  Plot
+            ax.plot(R_i[:, 0], Z_i[:, 0], **kwargs)
+            #  TODO: add more toroidal plane
+            # ax.plot(R_i[:, -1], Z_i[:, -1], **kwargs)
+            pi_half = int(R.shape[1] / 4)
+            ax.text(R_i[pi_half, 0], Z_i[pi_half, 0], f"{phi_i.item():.3f}")
+
+        if scalar is not None:
+            scalar = scalar.detach().view(R.shape)
+            cs = ax.contourf(R, Z, scalar, **contourf_kwargs)
+            ax.get_figure().colorbar(cs)
+
+        ax.axis("equal")
+        ax.set_prop_cycle(None)
+
+        ax.set_xlabel(r"$R [m]$")
+        ax.set_ylabel(r"$Z [m]$")
+
+        return ax

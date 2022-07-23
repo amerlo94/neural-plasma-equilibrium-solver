@@ -38,12 +38,12 @@ class HighBetaMLP(torch.nn.Module):
 
 class GradShafranovMLP(torch.nn.Module):
     def __init__(
-            self,
-            width: int = 32,
-            R0: float = 1.0,
-            a: float = 1.0,
-            b: float = 1.0,
-            psi_0: float = 1.0,
+        self,
+        width: int = 32,
+        R0: float = 1.0,
+        a: float = 1.0,
+        b: float = 1.0,
+        psi_0: float = 1.0,
     ) -> None:
         super().__init__()
 
@@ -73,11 +73,11 @@ class GradShafranovMLP(torch.nn.Module):
         return self.psi_0 * self.fc2(psi_hat).view(-1)
 
     def find_x_of_psi(
-            self,
-            psi: Union[float, str],
-            initial_guess: Tensor,
-            tolerance: float = 1e-5,
-            tolerance_change: float = 1e-8,
+        self,
+        psi: Union[float, str],
+        initial_guess: Tensor,
+        tolerance: float = 1e-5,
+        tolerance_change: float = 1e-8,
     ):
         """
         Find domain value x_0 such that psi = self(x_0).
@@ -139,11 +139,11 @@ class GradShafranovMLP(torch.nn.Module):
 
 class InverseGradShafranovMLP(torch.nn.Module):
     def __init__(
-            self,
-            Rb,
-            Zb,
-            width: int = 16,
-            num_features: int = 3,
+        self,
+        Rb,
+        Zb,
+        width: int = 16,
+        num_features: int = 3,
     ) -> None:
         super().__init__()
 
@@ -182,15 +182,15 @@ class InverseGradShafranovMLP(torch.nn.Module):
 
         #  Initialize layers
         for tensor in (
-                self.R_branch[-1].weight,
-                self.Z_branch[-1].weight,
-                self.l_branch[-1].weight,
+            self.R_branch[-1].weight,
+            self.Z_branch[-1].weight,
+            self.l_branch[-1].weight,
         ):
             torch.nn.init.normal_(tensor, std=1e-2)
         for tensor in (
-                self.R_branch[-1].bias,
-                self.l_branch[-1].bias,
-                self.Z_branch[-1].bias,
+            self.R_branch[-1].bias,
+            self.l_branch[-1].bias,
+            self.Z_branch[-1].bias,
         ):
             torch.nn.init.zeros_(tensor)
 
@@ -202,8 +202,7 @@ class InverseGradShafranovMLP(torch.nn.Module):
         cosm = torch.cos(rf)
         sinm = torch.sin(rf)
         #  Compute R, lambda and Z
-        rho_factor = torch.cat([rho ** m
-                                for m in range(self.num_features)], dim=-1)
+        rho_factor = torch.cat([rho**m for m in range(self.num_features)], dim=-1)
         R = self.Rb * rho_factor * (1 + self.R_branch(rho))
         R = (R * cosm).sum(dim=1).view(-1, 1)
         l = self.lb * rho_factor * (1 + self.l_branch(rho))
@@ -217,19 +216,19 @@ class InverseGradShafranovMLP(torch.nn.Module):
 
 class Inverse3DMHDMLP(torch.nn.Module):
     def __init__(
-            self,
-            Rb,
-            Zb,
-            ns: int,
-            ntheta: int,
-            nzeta: int,
-            nfp: int,
-            sym: bool = True,
-            width: int = 16,
-    # if m=2 then m ∈ {0, 1, 2}
-            max_mpol: int = 1,
-    # if n=1 then n ∈ {-1, 0, 1}, max_ntor is highest positive toroidal mode number in output
-            max_ntor: int = 1,
+        self,
+        Rb,
+        Zb,
+        ns: int,
+        ntheta: int,
+        nzeta: int,
+        nfp: int,
+        sym: bool = True,
+        width: int = 16,
+        # if m=2 then m ∈ {0, 1, 2}
+        max_mpol: int = 1,
+        # if n=1 then n ∈ {-1, 0, 1}, max_ntor is highest positive toroidal mode number in output
+        max_ntor: int = 1,
     ) -> None:
         super().__init__()
 
@@ -238,7 +237,9 @@ class Inverse3DMHDMLP(torch.nn.Module):
         self.max_mpol = max_mpol
         self.max_ntor = max_ntor
         self.mpol_shape = max_mpol + 1  # maximum of first fourier-modes matrix index
-        self.ntor_shape = max_ntor * 2 + 1  # maximum of second fourier-modes matrix index
+        self.ntor_shape = (
+            max_ntor * 2 + 1
+        )  # maximum of second fourier-modes matrix index
         self.poloidal_modes = torch.arange(0, self.max_mpol + 1)  # [:, None]
         self.toroidal_modes = torch.arange(-self.max_ntor, self.max_ntor + 1)
         idx = self.mpol_shape * self.ntor_shape
@@ -274,24 +275,33 @@ class Inverse3DMHDMLP(torch.nn.Module):
         # self.Rb = zero_pad(self.Rb)
         # self.Zb = zero_pad(self.Zb)
 
-        self.lb = torch.ones(self.mpol_shape, self.ntor_shape)
-        self.lb[0, :] = 0
-        self.lb[:, 0] = 0
+        # self.lb = torch.ones(self.mpol_shape, self.ntor_shape)
+        # self.lb[0, :] = 0
+        # self.lb[:, 0] = 0
 
         for tensor in (
-                self.R_branch[-1].weight,
-                self.Z_branch[-1].weight,
-                self.l_branch[-1].weight,
+            self.R_branch[-1].weight,
+            self.Z_branch[-1].weight,
+            self.l_branch[-1].weight,
         ):
             torch.nn.init.normal_(tensor, std=1e-2)
         for tensor in (
-                self.R_branch[-1].bias,
-                self.l_branch[-1].bias,
-                self.Z_branch[-1].bias,
+            self.R_branch[-1].bias,
+            self.l_branch[-1].bias,
+            self.Z_branch[-1].bias,
         ):
             torch.nn.init.zeros_(tensor)
 
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        with torch.no_grad():
+            shape = (max_mpol + 1, 2 * max_ntor + 1)
+            self.R_branch[-1].bias.data.view(shape)[self.Rb != 0] = self.Rb[
+                self.Rb != 0
+            ]
+            self.Z_branch[-1].bias.data.view(shape)[self.Zb != 0] = self.Zb[
+                self.Zb != 0
+            ]
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # def _get_mn(self):
     #     low_m = 10
@@ -314,9 +324,10 @@ class Inverse3DMHDMLP(torch.nn.Module):
         zeta = x[:, 2].view(-1, 1)
 
         # compute R, lambda, Z
-        rho_factor = torch.cat([rho ** m for m in range(self.mpol_shape)], dim=-1).unsqueeze(-1)
+        rho_factor = torch.cat(
+            [rho**m for m in range(self.mpol_shape)], dim=-1
+        ).unsqueeze(-1)
         # rho_factor = rho_factor.view(-1, self.ntheta, self.nzeta, rho_factor.shape[1], 1)
-
 
         # basis = get_fourier_basis(mpol=self.max_mpol - 1, ntor=int((self.max_ntor - 1) / 2),
         #                           ntheta=self.ntheta, nzeta=self.nzeta, include_endpoint=False,
@@ -341,25 +352,44 @@ class Inverse3DMHDMLP(torch.nn.Module):
         #     (self.nfp * self.toroidal_modes[None, None, None, :] * zeta[None, :, None,
         #                                                            None]))
 
-        f = self.poloidal_modes[:, None] * theta[:, None] - \
-            self.nfp * self.toroidal_modes[None, :] * zeta[:, None]
+        f = (
+            self.poloidal_modes[:, None] * theta[:, None]
+            - self.nfp * self.toroidal_modes[None, :] * zeta[:, None]
+        )
 
         costzmn = torch.cos(f)
         sintzmn = torch.sin(f)
 
-        R = rho_factor * self.Rb * \
-            (1 + self.R_branch(rho).reshape(-1, self.mpol_shape, self.ntor_shape))
-        R = torch.einsum("smn,smn->s", costzmn, R).contiguous()
-        R = R.view(-1, 1)
-        l = rho_factor * self.lb * \
-            (1 + self.l_branch(rho).reshape(-1, self.mpol_shape, self.ntor_shape))
-        l = torch.einsum("smn,smn->s", sintzmn, l).contiguous()
-        l = l.view(-1, 1)
-        Z = rho_factor * self.Zb * \
-            (1 + self.Z_branch(rho).reshape(-1, self.mpol_shape, self.ntor_shape))
-        Z = torch.einsum("smn,smn->s", sintzmn, Z).contiguous()
-        Z = Z.view(-1, 1)
-        RlZ = torch.cat([R, l, Z], dim=-1)
+        # R = (
+        #     rho_factor
+        #     * self.Rb
+        #     * (1 + self.R_branch(rho).reshape(-1, self.mpol_shape, self.ntor_shape))
+        # )
+        # R = torch.einsum("smn,smn->s", costzmn, R).contiguous()
+        rmnc = rho_factor * self.R_branch(rho).reshape(
+            -1, self.mpol_shape, self.ntor_shape
+        )
+        rmnc[:, 0, : self.max_ntor] = 0
+        R = (costzmn * rmnc).sum(dim=(1, 2))
+        # l = (
+        #     rho_factor
+        #     * self.lb
+        #     * (1 + self.l_branch(rho).reshape(-1, self.mpol_shape, self.ntor_shape))
+        # )
+        lmns = rho_factor * self.l_branch(rho).reshape(
+            -1, self.mpol_shape, self.ntor_shape
+        )
+        lmns[:, 0, : self.max_ntor + 1] = 0
+        l = (sintzmn * lmns).sum(dim=(1, 2))
+        # Z = (
+        #     rho_factor
+        #     * self.Zb
+        #     * (1 + self.Z_branch(rho).reshape(-1, self.mpol_shape, self.ntor_shape))
+        # )
+        zmns = rho_factor * self.Z_branch(rho).reshape(
+            -1, self.mpol_shape, self.ntor_shape
+        )
+        zmns[:, 0, : self.max_ntor + 1] = 0
+        Z = (sintzmn * zmns).sum(dim=(1, 2))
+        RlZ = torch.stack([R, l, Z], dim=-1)
         return RlZ
-
-

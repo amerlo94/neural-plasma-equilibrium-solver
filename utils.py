@@ -84,6 +84,35 @@ def get_flux_surfaces_from_wout(wout_path: str):
     return torch.stack([R.view(-1), Z.view(-1)], dim=-1), chi
 
 
+def get_3d_flux_surfaces_from_wout(wout_path: str, ntheta: int = 16, nzeta: int = 18):
+    #  TODO: merge with 2d one
+    wout = get_wout(wout_path)
+    nfp = int(wout["nfp"][:].data.item())
+    xm = torch.from_numpy(wout["xm"][:].data)
+    xn = torch.from_numpy(wout["xn"][:].data)
+    theta = (2 * torch.linspace(0, 1, ntheta) - 1) * torch.pi
+    zeta = (torch.linspace(0, 1, nzeta)) * torch.pi / nfp
+    angle = (
+        theta[:, None, None] * xm[None, None, :]
+        - zeta[
+            None,
+            :,
+            None,
+        ]
+        * xn[None, None, :]
+    )
+    rmnc = torch.as_tensor(wout["rmnc"][:]).clone()
+    zmns = torch.as_tensor(wout["zmns"][:]).clone()
+    costzmn = torch.cos(angle)
+    sintzmn = torch.sin(angle)
+    R = torch.einsum("stzf,sf->stz", costzmn[None, ...], rmnc).contiguous()
+    Z = torch.einsum("stzf,sf->stz", sintzmn[None, ...], zmns).contiguous()
+    #  Return poloidal on the flux surfaces also
+    phi = torch.as_tensor(wout["phi"][:]).clone()
+    #  Return flux surfaces as grid
+    return torch.stack([R.view(-1), Z.view(-1)], dim=-1), phi
+
+
 def ift_2D(
     xm: Tensor,
     basis: str,
