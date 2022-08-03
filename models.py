@@ -5,10 +5,6 @@ from typing import Union, Tuple
 import torch
 from torch import Tensor
 
-
-from utils import get_fourier_basis
-
-
 class HighBetaMLP(torch.nn.Module):
     def __init__(self, width: int = 16, a: float = 1.0, psi_0: float = 1.0) -> None:
         super().__init__()
@@ -262,6 +258,8 @@ class Inverse3DMHDMLP(torch.nn.Module):
         )
         self.Z_branch = torch.nn.Sequential(
             torch.nn.Linear(1, width),
+            torch.nn.Tanh(),
+            torch.nn.Linear(width, width),
             torch.nn.Tanh(),
             torch.nn.Linear(width, idx),
         )

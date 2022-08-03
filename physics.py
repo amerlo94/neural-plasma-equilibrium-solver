@@ -636,8 +636,8 @@ class GradShafranovEquilibrium(Equilibrium):
         if normalized is None:
             normalized = self.normalized
 
-        Rb = ift(self.Rb, basis="cos", ntheta=ns)
-        Zb = ift(self.Zb, basis="sin", ntheta=ns)
+        Rb = ift_2D(self.Rb, basis="cos", ntheta=ns)
+        Zb = ift_2D(self.Zb, basis="sin", ntheta=ns)
 
         grid = []
 
@@ -825,7 +825,7 @@ class InverseGradShafranovEquilibrium(Equilibrium):
             Za=Za,
             phi_edge=phi_edge,
             wout_path=wout_path,
-            ndomain=ns,
+            ns=ns,
             **kwargs,
         )
 

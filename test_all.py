@@ -11,7 +11,7 @@ from physics import (
     InverseGradShafranovEquilibrium,
     Inverse3DMHD,
 )
-from utils import grad, get_profile_from_wout, ift, get_RlZ_from_wout, get_wout
+from utils import grad, get_profile_from_wout, ift, ift_2D, get_RlZ_from_wout, get_wout
 
 #########
 # Utils #
@@ -322,7 +322,7 @@ def test_inverse_grad_shafranov_jacobian(wout_path, ntheta, js):
     wout = get_wout(wout_path)
     gmnc = torch.as_tensor(wout["gmnc"][:]).clone()
     with torch.no_grad():
-        vmec_jacobian = ift(gmnc, basis="cos", ntheta=theta[: equi.ntheta])
+        vmec_jacobian = ift_2D(gmnc, basis="cos", ntheta=theta[: equi.ntheta])
 
     assert torch.allclose(
         jacobian[js], vmec_jacobian[js], atol=1e-2, rtol=0
@@ -382,15 +382,17 @@ def test_get_3DRlZ_from_wout(wout_path, ntheta, nzeta, xmn):
 
     for js in range(ns):
         assert torch.allclose(
-            x[js], vmec_x[js], rtol=0, atol=1e-6
+            x[js], vmec_x[js], rtol=0, atol=1e-4
         ), f"mae={(x[js] - vmec_x[js]).abs().mean():.2e} at rho={rho[js]:.4f}"
 
-
+# @pytest.mark.parametrize("ns", (21,))
+# @pytest.mark.parametrize("ntheta", (16,))
+# @pytest.mark.parametrize("nzeta", (18,))
 #  TODO: increase grid size
-@pytest.mark.parametrize("wout_path", ("data/wout_HELIOTRON.nc",))
-@pytest.mark.parametrize("ns", (21,))
-@pytest.mark.parametrize("ntheta", (16,))
-@pytest.mark.parametrize("nzeta", (18,))
+@pytest.mark.parametrize("wout_path, ns, ntheta, nzeta", [
+    ("data/wout_HELIOTRON.nc", 64, 48, 38),
+    ("data/wout_W7X.nc", 64, 16, 32)
+])
 def test_inverse_3d_pde_closure(wout_path, ns, ntheta, nzeta):
 
     equi = Inverse3DMHD.from_vmec(wout_path)
@@ -409,3 +411,105 @@ def test_inverse_3d_pde_closure(wout_path, ns, ntheta, nzeta):
     mean_f = np.sqrt(fsq) / (equi.ns * equi.ntheta * equi.nzeta)
 
     assert mean_f < 1e-3
+
+@pytest.mark.parametrize("wout_path, ntheta, nzeta, js", [
+    ("data/wout_HELIOTRON.nc", 16, 16, 16),
+    ("data/wout_W7X.nc", 16, 16, 16)
+])
+# @pytest.mark.parametrize("js", range(1, 256))
+def test_inverse_3D_jacobian(wout_path, ntheta, nzeta, js):
+
+    wout = get_wout(wout_path)
+    ns = wout["ns"][:].data.item()
+    # mpol = torch.as_tensor(wout["mpol"][:]).clone()
+    # ntor = torch.as_tensor(wout["ntor"][:]).clone()
+    # mnmode_nyq = torch.as_tensor(wout["mnmax_nyq"][:]).clone()
+    # nfp = torch.as_tensor(wout["nfp"][:]).clone()
+    # poloidal_modes = torch.arange(mpol)
+    # toroidal_modes = torch.arange(-ntor, ntor+1, 1)
+    poloidal_modes = torch.as_tensor(wout["xm_nyq"][:]).clone()
+    # xn in VMEC is xn/nfp already
+    toroidal_modes = torch.as_tensor(wout["xn_nyq"][:]).clone()
+
+    equi = Inverse3DMHD.from_vmec(wout_path)
+    equi.ntheta = ntheta
+    equi.nzeta = nzeta
+    equi.ns = ns
+
+    #  Skip tests if we have reached the boundary
+    if js >= ns:
+        return
+
+    # VMEC radial coordinate (VMEC calculates jacobian on Half-mesh)
+    phi = torch.zeros(ns)
+    phi[1:] = torch.linspace(0, 1, ns)[1:] - 0.5 /(ns-1)
+    rho = torch.sqrt(phi)
+
+    # Set equilibrium grid same as VMEC
+    x = equi.grid()
+    x[:, 0] = rho.repeat_interleave(equi.ntheta * equi.nzeta)
+    x = x.to(torch.float64)
+    x.requires_grad_()
+
+    rho = x[:, 0]
+    theta = x[:, 1]
+    zeta = x[:, 2]
+
+    RlZ = get_RlZ_from_wout(x, wout_path)
+
+    #  Get differentiable jacobian
+    R = RlZ[:, 0]
+    Z = RlZ[:, 2]
+    dR_dx = grad(R, x, retain_graph=True)
+    Rs = dR_dx[:, 0]
+    Ru = dR_dx[:, 1]
+    dZ_dx = grad(Z, x, retain_graph=True)
+    Zs = dZ_dx[:, 0]
+    Zu = dZ_dx[:, 1]
+    jacobian = R * (Ru * Zs - Zu * Rs)
+
+    #  Get jacobian in VMEC flux coordinates
+    jacobian /= 2 * rho
+    jacobian = jacobian.nan_to_num()
+    jacobian = jacobian.view(-1, equi.ntheta, equi.nzeta)
+
+    # VMEC jacobian
+    # https://github.com/lazersos/matlabVMEC/blob/49fcb341cbd9b97c72204d6f7eb257459697a487/VMEC/read_vmec.m#L200
+    # msize = poloidal_modes.max()
+    # nsize = max(toroidal_modes / nfp)-min(toroidal_modes / nfp)+1
+    # offset = min(toroidal_modes / nfp) - 1
+    # sqrt_g = torch.zeros((int(msize.item()+1), int(nsize.item()), ns))
+    # toroidal_modes = - toroidal_modes
+
+    gmnc = torch.as_tensor(wout["gmnc"][:]).clone()
+    # gmnc = gmnc.T  # 2D vmec arrays are transposed to Ns x Nmn
+
+    # TODO check each flux surfaces
+    # TODO VMEC weights differently even / un-even modes numbers
+
+    # with endpoint
+    thetas = theta[:ns:ntheta]
+    zetas = zeta[:nzeta]
+    rhos = rho[::ns]
+
+    costzmn = torch.zeros(ntheta, nzeta, len(toroidal_modes), dtype=torch.float64)
+    vmec_jacobian = torch.zeros(ns, ntheta, nzeta, dtype=torch.float64)
+    for t, _ in enumerate(rhos):
+        for i, theta in enumerate(thetas):
+            for j, zeta in enumerate(zetas):
+                # VMEC's xn_nyq is already xn * nfp
+                costzmn[i, j] = torch.cos(
+                    poloidal_modes * theta - toroidal_modes * zeta
+                )
+                vmec_jacobian[t, i, j] = (gmnc[t] * costzmn[i, j]).sum()
+
+    # with torch.no_grad():
+    #     vmec_jacobian = (costzmn[None, :]* gmnc[:, None, None, :]).sum(dim=3)
+
+    # compare
+    # difference is on the order of O(1e-1), is this because of VMECs weighting ?
+    assert torch.allclose(
+        jacobian[js], vmec_jacobian[js], atol=1e-1, rtol=1e-1
+    ), f"mae={(jacobian[js] - vmec_jacobian[js]).abs().mean():.2e} at rho={rho[::equi.ntheta][js]:.4f}"
+
+
