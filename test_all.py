@@ -417,10 +417,12 @@ def test_inverse_3d_pde_closure(wout_path, ns, ntheta, nzeta):
     ("data/wout_W7X.nc", 16, 16, 16)
 ])
 # @pytest.mark.parametrize("js", range(1, 256))
-def test_inverse_3D_jacobian(wout_path, ntheta, nzeta, js):
+def test_inverse_3D_jacobian(wout_path, ntheta, nzeta, js, ns=None):
 
     wout = get_wout(wout_path)
-    ns = wout["ns"][:].data.item()
+    if ns is None:
+        ns = wout["ns"][:].data.item()
+
     # mpol = torch.as_tensor(wout["mpol"][:]).clone()
     # ntor = torch.as_tensor(wout["ntor"][:]).clone()
     # mnmode_nyq = torch.as_tensor(wout["mnmax_nyq"][:]).clone()
@@ -447,7 +449,7 @@ def test_inverse_3D_jacobian(wout_path, ntheta, nzeta, js):
 
     # Set equilibrium grid same as VMEC
     x = equi.grid()
-    x[:, 0] = rho.repeat_interleave(equi.ntheta * equi.nzeta)
+    x[:, 0] = rho.repeat_interleave(equi.ntheta*equi.nzeta)
     x = x.to(torch.float64)
     x.requires_grad_()
 
@@ -484,16 +486,15 @@ def test_inverse_3D_jacobian(wout_path, ntheta, nzeta, js):
     gmnc = torch.as_tensor(wout["gmnc"][:]).clone()
     # gmnc = gmnc.T  # 2D vmec arrays are transposed to Ns x Nmn
 
-    # TODO check each flux surfaces
     # TODO VMEC weights differently even / un-even modes numbers
 
     # with endpoint
-    thetas = theta[:ns:ntheta]
-    zetas = zeta[:nzeta]
-    rhos = rho[::ns]
+    thetas = torch.unique(theta)
+    zetas = torch.unique(zeta)
+    rhos = torch.unique(rho)
 
-    costzmn = torch.zeros(ntheta, nzeta, len(toroidal_modes), dtype=torch.float64)
-    vmec_jacobian = torch.zeros(ns, ntheta, nzeta, dtype=torch.float64)
+    costzmn = torch.zeros(equi.ntheta, equi.nzeta, len(toroidal_modes), dtype=torch.float64)
+    vmec_jacobian = torch.zeros(ns, equi.ntheta, equi.nzeta, dtype=torch.float64)
     for t, _ in enumerate(rhos):
         for i, theta in enumerate(thetas):
             for j, zeta in enumerate(zetas):
