@@ -301,21 +301,6 @@ class Inverse3DMHDMLP(torch.nn.Module):
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # def _get_mn(self):
-    #     low_m = 10
-    #     high_m = -10
-    #     low_n = 10
-    #     high_n = -10
-    #     for B in [self.Rb, self.Zb]:
-    #         for (m, n), x in B:
-    #             if m > high_m: high_m = m
-    #             if m < low_m: low_m = m
-    #             if n > high_n: high_n = n
-    #             if n < low_n: low_n = n
-    #     mode_max = max(high_m, high_n)
-    #     mode_min = min(low_m, low_n)
-    #     return mode_min, mode_max
-
     def forward(self, x: Tensor) -> Tensor:
         rho = x[:, 0].view(-1, 1)
         theta = x[:, 1].view(-1, 1)
@@ -352,7 +337,7 @@ class Inverse3DMHDMLP(torch.nn.Module):
 
         f = (
             self.poloidal_modes[:, None] * theta[:, None]
-            - self.nfp * self.toroidal_modes[None, :] * zeta[:, None]
+            - (self.nfp * self.toroidal_modes * zeta).unsqueeze(1)
         )
 
         costzmn = torch.cos(f)

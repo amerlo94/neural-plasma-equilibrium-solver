@@ -256,7 +256,8 @@ def train(
         )
     if target == "inverse-3d-mhd" and equi.wout_path is not None:
         #  Plot VMEC flux surfaces
-        rz, phi = get_3d_flux_surfaces_from_wout(equi.wout_path)
+        rz, phi = get_3d_flux_surfaces_from_wout(equi.wout_path,
+                                                 nzeta=equi.nzeta, ntheta=equi.ntheta)
         equi.fluxsurfacesplot(
             rz,
             ax,
@@ -309,7 +310,7 @@ if __name__ == "__main__":
         "--config",
         nargs="?",
         type=str,
-        default="configs/inverse_heliotron.yaml",
+        default="configs/inverse_heliotron_0beta.yaml",
         help="Configuration file to use",
     )
     args = parser.parse_args()

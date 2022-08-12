@@ -1132,14 +1132,25 @@ class Inverse3DMHD(Equilibrium):
         self.Rb = torch.as_tensor(Rb)
         self.Zb = torch.as_tensor(Zb)
         # todo check if mpol_shape > self.Rb.shape[0] and same for ntor_shape
-        zero_pad = torch.nn.ZeroPad2d(
-            (
-                0,
-                (self.ntor_shape - self.Rb.shape[1]),
-                0,
-                (self.mpol_shape - self.Rb.shape[0]),
+
+        if self.ntor_shape - self.Rb.shape[1] > 1:
+            zero_pad = torch.nn.ZeroPad2d(
+                (
+                    int(self.ntor_shape - self.Rb.shape[1]) // 2,
+                    int(self.ntor_shape - self.Rb.shape[1]) // 2,
+                    0,
+                    (self.mpol_shape - self.Rb.shape[0]),
+                )
             )
-        )
+        else:
+            zero_pad = torch.nn.ZeroPad2d(
+                (
+                    0,
+                    (self.ntor_shape - self.Rb.shape[1]),
+                    0,
+                    (self.mpol_shape - self.Rb.shape[0]),
+                )
+            )
         self.Rb = zero_pad(self.Rb)
         self.Zb = zero_pad(self.Zb)
 

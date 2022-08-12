@@ -171,8 +171,6 @@ def get_fourier_basis(
     toroidal_modes = torch.arange(-ntor, ntor + 1, dtype=dtype)  # [None, :]
 
     if grid is not None:
-        #  same stencil generation method as in physics/Inverse3DMHD.__iter__
-        ntmnz = ntheta * nzeta
         thetas = grid[:, 1]  # [:ntmnz:ntheta]
         zetas = grid[:, 2]  # [:ntmnz:nzeta]
     else:
