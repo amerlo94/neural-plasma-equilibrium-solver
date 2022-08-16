@@ -249,18 +249,22 @@ class Inverse3DMHDMLP(torch.nn.Module):
         self.R_branch = torch.nn.Sequential(
             torch.nn.Linear(1, width),
             torch.nn.Tanh(),
+            # torch.nn.Linear(width, width),
+            # torch.nn.Tanh(),
             torch.nn.Linear(width, idx),
         )
         self.l_branch = torch.nn.Sequential(
             torch.nn.Linear(1, width),
             torch.nn.Tanh(),
+            # torch.nn.Linear(width, width),
+            # torch.nn.Tanh(),
             torch.nn.Linear(width, idx),
         )
         self.Z_branch = torch.nn.Sequential(
             torch.nn.Linear(1, width),
             torch.nn.Tanh(),
-            torch.nn.Linear(width, width),
-            torch.nn.Tanh(),
+            # torch.nn.Linear(width, width),
+            # torch.nn.Tanh(),
             torch.nn.Linear(width, idx),
         )
 

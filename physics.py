@@ -1092,13 +1092,16 @@ class Inverse3DMHD(Equilibrium):
 
     def __init__(
         self,
-        p: Tuple[float] = (3.4e3, -2 * 3.4e3, 3.4e3),
-        iota: Tuple[float] = (0.5, 1.5),
-        Rb: Tuple[tuple] = (
+        p: Tuple[float, ...] = (3.4e3, -2 * 3.4e3, 3.4e3),
+        iota: Tuple[float, ...] = (1.0, 1.5),
+        Rb: Tuple[Tuple[float, ...], ...] = (
             (0.0, 10.0, 0.0),  # m = 0 modes / mn: {0-1,00,01}
-            (-0.3, -1.0, 0.0),  # m = 1 modes / mn: {1-1,10,11}
+            (0.0, 1.0, 0.3),  # m = 1 modes / mn: {1-1,10,11}
         ),
-        Zb: Tuple[tuple] = ((0.0, 0.0, 0.0), (-0.3, -1.0, 0.0)),
+        Zb: Tuple[Tuple[float, ...], ...] = (
+                (0.0, 0.0, 0.0),
+                (-0.3, -1.0, 0.0)
+        ),
         Ra: float = 10.0,
         Za: float = 0.0,
         nfp: int = 19,
@@ -1133,7 +1136,7 @@ class Inverse3DMHD(Equilibrium):
         self.Zb = torch.as_tensor(Zb)
         # todo check if mpol_shape > self.Rb.shape[0] and same for ntor_shape
 
-        if self.ntor_shape - self.Rb.shape[1] > 1:
+        if abs(self.ntor_shape - self.Rb.shape[1]) > 1:
             zero_pad = torch.nn.ZeroPad2d(
                 (
                     int(self.ntor_shape - self.Rb.shape[1]) // 2,
@@ -1353,6 +1356,7 @@ class Inverse3DMHD(Equilibrium):
             - 2 * grad_thetazeta * bsupu * bsupv
         )
         fsq = f_rho**2 * grad_rho + f_beta**2 * beta
+
         #  TODO: remove me, here only for debugging
         # import matplotlib.pyplot as plt
 
@@ -1367,10 +1371,11 @@ class Inverse3DMHD(Equilibrium):
         # plt.yscale("log")
         # plt.title(r"$\langle f^2 \rangle$")
         # plt.show()
+
         return (fsq * jacobian.abs()).sum()
 
     def _mae_pde_loss(self, x: Tensor, RlZ: Tensor) -> Tensor:
-        print("MAE metric has not been implemented yet for the inverse GS equilibrium")
+        print("MAE metric has not been implemented yet for the inverse 3D ideal MHD equilibrium")
         return 0
 
     def _boundary_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
@@ -1398,12 +1403,18 @@ class Inverse3DMHD(Equilibrium):
     def _axis_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
         raise NotImplementedError()
 
-    def grid(self, ns: int = None, normalized: bool = None) -> Tensor:
+    def grid(self, ns: int = None,
+             normalized: bool = None,
+             axis: bool = True) -> Tensor:
 
         if ns is None:
             ns = self.ns
 
-        rho = torch.linspace(0, 1, ns)
+        if axis:
+            rho = torch.linspace(0, 1, ns)
+        else:
+            rho = torch.linspace(0, 1, ns +1)[1:]
+
         theta = (2 * torch.linspace(0, 1, self.ntheta) - 1) * math.pi
         zeta = (torch.linspace(0, 1, self.nzeta)) * math.pi / self.nfp
         grid = torch.cartesian_prod(rho, theta, zeta)

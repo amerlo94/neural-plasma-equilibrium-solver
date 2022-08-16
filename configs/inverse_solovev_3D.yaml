@@ -1,0 +1,23 @@
+seed: 42123
+max_epochs: 100
+nbatches: 1
+log_every_n_steps: 10
+update_axis_every_n_epochs: 20
+learning_rate: 0.1
+
+equilibrium:
+  _target_: inverse-3d-mhd
+  nfp: 1
+  p: [0.125, -0.125]
+  iota: [1., 0.]
+  Rb: [[0., 3.999, 0], [0., 1.026, 0.], [0., -0.068, 0.]]
+  Zb: [[0, 0., 0.], [0., 1.58, 0.], [0., 0.01, 0.]]
+  Ra: 3.999
+  Za: 0.0
+  phi_edge: 1.0
+  wout_path: data/wout_SOLOVEV.nc
+  ns: 16
+  ntheta: 16
+  nzeta: 1
+  max_mpol: 4
+  max_ntor: 0

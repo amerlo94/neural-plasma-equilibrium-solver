@@ -361,7 +361,7 @@ def get_solovev_boundary(
     return Rb.detach()
 
 
-def get_RlZ_from_wout(x: Tensor, wout_path: str):
+def get_RlZ_from_wout(x: Tensor, wout_path: str, dtype=torch.float64):
     """
     Compute flux surfaces geometry on a given grid from a VMEC wout file.
 
@@ -446,4 +446,4 @@ def get_RlZ_from_wout(x: Tensor, wout_path: str):
     l = get_x(lmns, basis="sin")
     Z = get_x(zmns, basis="sin")
 
-    return torch.stack([R, l, Z], dim=-1)
+    return torch.stack([R, l, Z], dim=-1).to(dtype=dtype)

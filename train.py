@@ -310,7 +310,7 @@ if __name__ == "__main__":
         "--config",
         nargs="?",
         type=str,
-        default="configs/inverse_heliotron_0beta.yaml",
+        default="configs/inverse_solovev_3D.yaml",
         help="Configuration file to use",
     )
     args = parser.parse_args()
@@ -318,4 +318,5 @@ if __name__ == "__main__":
     with open(args.config, "r") as f:
         config = yaml.safe_load(f)
 
+    print(args)
     train(**config)

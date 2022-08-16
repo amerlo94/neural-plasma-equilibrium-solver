@@ -8,7 +8,8 @@ equilibrium:
   Za: 0.0
   phi_edge: 1.0
   wout_path: data/wout_SOLOVEV.nc
-  ndomain: 32
+  ns: 32
+  ntheta: 16
 
 seed: 42
 max_epochs: 100
