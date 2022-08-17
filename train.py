@@ -310,7 +310,7 @@ if __name__ == "__main__":
         "--config",
         nargs="?",
         type=str,
-        default="configs/inverse_solovev_3D.yaml",
+        default="configs/inverse_dshape_3D.yaml",
         help="Configuration file to use",
     )
     args = parser.parse_args()

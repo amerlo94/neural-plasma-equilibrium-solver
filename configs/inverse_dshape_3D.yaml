@@ -1,0 +1,23 @@
+seed: 42
+max_epochs: 100
+nbatches: 1
+log_every_n_steps: 5
+update_axis_every_n_epochs: 20
+learning_rate: 0.1
+
+equilibrium:
+  _target_: inverse-3d-mhd
+  nfp: 1
+  p: [1600, -3200, 1600]
+  iota: [1, -0.67]
+  Rb: [[0., 3.51, 0.], [0., 1.0, 0.], [0.,  0.106, 0.]]
+  Zb: [[0., 0., 0.], [0., 1.47, 0.], [0., -0.16, 0.]]
+  Ra: 3.51
+  Za: 0.0
+  phi_edge: 1.0
+  wout_path: data/wout_DSHAPE.nc
+  ns: 32
+  ntheta: 32
+  nzeta: 1
+  max_mpol: 6
+  max_ntor: 0
