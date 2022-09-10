@@ -123,13 +123,18 @@ def train(
     #  shorthand
     target = equilibrium["_target_"]
 
-    optimizer = torch.optim.LBFGS(
+    # TODO: define optimizer in config
+    # optimizer = torch.optim.LBFGS(
+    #     model.parameters(),
+    #     lr=learning_rate,
+    #     tolerance_grad=0,
+    #     tolerance_change=0,
+    #     max_iter=20,
+    #     line_search_fn="strong_wolfe",
+    # )
+    optimizer = torch.optim.Adam(
         model.parameters(),
-        lr=learning_rate,
-        tolerance_grad=0,
-        tolerance_change=0,
-        max_iter=20,
-        line_search_fn="strong_wolfe",
+        lr=1e-4,
     )
 
     #########
@@ -155,13 +160,22 @@ def train(
                 loss.backward()
                 return loss
 
-            optimizer.step(closure)
+            loss = closure()
+            for param in model.parameters():
+                torch.nn.utils.clip_grad_norm_(param, 1e-4)
+            optimizer.step()
+            # TODO: step for L-BFGS-B
+            # optimizer.step(closure)
 
             #  Print the current loss:
             #  this is the loss at the given step and not the
             #  loss aggregated over all batches.
             global_step = epoch * nbatches + batch_idx
             if global_step % log_every_n_steps == log_every_n_steps - 1:
+                # TODO: remove me
+                rmnl_grad = f"rmnl_g={(model.rmnl.grad[model.rmnl != 0] / model.rmnl[model.rmnl != 0]).abs().mean():.2e}"
+                lmnl_grad = f"lmnl_g={(model.lmnl.grad[model.lmnl != 0] / model.lmnl[model.lmnl != 0]).abs().mean():.2e}"
+                zmnl_grad = f"zmnl_g={(model.zmnl.grad[model.zmnl != 0] / model.zmnl[model.zmnl != 0]).abs().mean():.2e}"
                 optimizer.zero_grad()
                 loss = equi.closure(
                     x_domain,
@@ -175,6 +189,10 @@ def train(
                 string = f"[{epoch:5d}/{max_epochs:5d}][{batch_idx:3d}/{nbatches:3d}]"
                 for k, v in loss.items():
                     string += f", {k}={v.item():.2e}"
+                for k, v in zip(
+                    ("rmnl_g", "lmnl_g", "zmnl_g"), (rmnl_grad, lmnl_grad, zmnl_grad)
+                ):
+                    string += ", " + v
                 print(string)
 
             #  Update running axis guess
@@ -256,8 +274,9 @@ def train(
         )
     if target == "inverse-3d-mhd" and equi.wout_path is not None:
         #  Plot VMEC flux surfaces
-        rz, phi = get_3d_flux_surfaces_from_wout(equi.wout_path,
-                                                 nzeta=equi.nzeta, ntheta=equi.ntheta)
+        rz, phi = get_3d_flux_surfaces_from_wout(
+            equi.wout_path, nzeta=equi.nzeta, ntheta=equi.ntheta
+        )
         equi.fluxsurfacesplot(
             rz,
             ax,
@@ -310,7 +329,7 @@ if __name__ == "__main__":
         "--config",
         nargs="?",
         type=str,
-        default="configs/inverse_dshape_3D.yaml",
+        default="configs/inverse_w7x.yaml",
         help="Configuration file to use",
     )
     args = parser.parse_args()

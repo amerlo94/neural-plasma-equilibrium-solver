@@ -1095,22 +1095,19 @@ class Inverse3DMHD(Equilibrium):
         p: Tuple[float, ...] = (3.4e3, -2 * 3.4e3, 3.4e3),
         iota: Tuple[float, ...] = (1.0, 1.5),
         Rb: Tuple[Tuple[float, ...], ...] = (
-            (0.0, 10.0, 0.0),  # m = 0 modes / mn: {0-1,00,01}
-            (0.0, 1.0, 0.3),  # m = 1 modes / mn: {1-1,10,11}
+            (0.0, 10.0, 0.0),
+            (0.0, 1.0, 0.3),
         ),
-        Zb: Tuple[Tuple[float, ...], ...] = (
-                (0.0, 0.0, 0.0),
-                (-0.3, -1.0, 0.0)
-        ),
+        Zb: Tuple[Tuple[float, ...], ...] = ((0.0, 0.0, 0.0), (-0.3, -1.0, 0.0)),
         Ra: float = 10.0,
         Za: float = 0.0,
         nfp: int = 19,
         sym: bool = True,
         phi_edge: float = 1,
+        signgs: int = -1,
         wout_path: Optional[str] = None,
         ntheta: Optional[int] = 32,
         nzeta: Optional[int] = 36,
-        # highest positive poloidal and toroidal mode numbers
         max_mpol: Optional[int] = 1,
         max_ntor: Optional[int] = 1,
         **kwargs,
@@ -1119,23 +1116,22 @@ class Inverse3DMHD(Equilibrium):
         self.p = torch.as_tensor(p)
         self.iota = torch.as_tensor(iota)
         self.nfp = nfp
-        self.sym = sym  # NoQA - not symmetric boundaries not tested yet
+        self.sym = sym
 
         self.max_mpol = max_mpol
         self.max_ntor = max_ntor
-        self.poloidal_modes = torch.arange(
-            0, max_mpol + 1
-        )  # , dtype=dtype)  # [:, None]
-        self.toroidal_modes = torch.arange(
-            -max_ntor, max_ntor + 1
-        )  # , dtype=dtype)  # [None, :]
-        self.mpol_shape = max_mpol + 1  # maximum of first fourier-modes matrix index
+        self.poloidal_modes = torch.arange(0, max_mpol + 1, dtype=int)
+        self.toroidal_modes = torch.arange(-max_ntor, max_ntor + 1, dtype=int)
+        self.mpol_shape = max_mpol + 1
         self.ntor_shape = max_ntor * 2 + 1
+
+        #  Sign of the Jacobian, must be=1 (right-handed) or=-1 (left-handed)
+        self.signgs = signgs
 
         self.Rb = torch.as_tensor(Rb)
         self.Zb = torch.as_tensor(Zb)
-        # todo check if mpol_shape > self.Rb.shape[0] and same for ntor_shape
 
+        # TODO: what is this? Remove if not necessary
         if abs(self.ntor_shape - self.Rb.shape[1]) > 1:
             zero_pad = torch.nn.ZeroPad2d(
                 (
@@ -1160,8 +1156,6 @@ class Inverse3DMHD(Equilibrium):
         # axis initial guess
         self.Ra = Ra
         self.Za = Za
-        # running axis location
-        pass
 
         self.phi_edge = phi_edge
         self.ntheta = ntheta
@@ -1192,7 +1186,9 @@ class Inverse3DMHD(Equilibrium):
         #  Remove trailing zeros
         pressure = pressure[pressure != 0].tolist()
 
+        #  Get iota profile and sign
         iota = wout["ai"][:].data
+        iota *= np.sign(wout["iotaf"][:][0])
         iota = iota[iota != 0].tolist()
 
         Rb = wout["rmnc"][-1].data
@@ -1225,73 +1221,30 @@ class Inverse3DMHD(Equilibrium):
 
     def __iter__(self):
 
-        #  Use equally spaced grid to compute volume averaged quantities in
-        #  closure functions.
-
-        # if static grid - generate only once
-
         while True:
 
             # domain
-            # radial coordinate, without boundary (rho=1)
+            # radial coordinate, without axis (rho=0) and boundary (rho=1)
             rho = torch.linspace(0, 1, self.ns + 2)[1:-1]
-            # poloidal coordinate ∈ [-π, π)
-            theta = (2 * torch.linspace(0, 1, self.ntheta) - 1) * math.pi
-            # in symmetric case ζ ∈ [0, π/NFP), non-symmetric ζ ∈ [0, 2π/NFP)
-            zeta = (torch.linspace(0, 1, self.nzeta)) * math.pi / self.nfp
+            # TODO: understand how to exploit stellarator symmetry here
+            # poloidal coordinate
+            theta = (2 * torch.linspace(0, 1, self.ntheta + 1)[:-1] - 1) * math.pi
+            # toroidal coordinate
+            zeta = (torch.linspace(0, 1, self.nzeta + 1))[:-1] * 2 * math.pi / self.nfp
             domain = torch.cartesian_prod(rho, theta, zeta)
 
             # boundary
             rho = torch.ones(1)
             boundary = torch.cartesian_prod(rho, theta, zeta)
 
-            # Fourier transform
-            # self.costzmn = torch.cos(
-            #     self.poloidal_modes[None, None, :, None]
-            #     * theta[:, None, None, None]
-            #     - self.nfp * self.toroidal_modes[None, None, None, :]
-            #     * zeta[None, :, None, None]
-            # )[None, :]
-            #
-            # self.sintzmn = torch.sin(
-            #     self.poloidal_modes[None, None, :, None]
-            #     * theta[:, None, None, None]
-            #     - self.nfp * self.toroidal_modes[None, None, None, :]
-            #     * zeta[None, :, None, None]
-            # )[None, :]
-
-            # self.costzmn.requires_grad_()
-            # self.sintzmn.requires_grad_()
-
-            yield domain, boundary, None,  # None, None
-
-    # def b_fn(self, theta, zeta, xb):
-    #     #  TODO tensorize with pytorch / or remove
-    #
-    #     def get_fourier_basis(theta, zeta, n: int, m: int, nfp: int):
-    #         if m >= 0:
-    #             if n >= 0:
-    #                 return math.cos(abs(m) * theta) * math.cos(abs(n) * nfp * zeta)
-    #             else:
-    #                 return math.cos(abs(m) * theta) * math.sin(abs(n) * nfp * zeta)
-    #         else:
-    #             if n >= 0:
-    #                 return math.sin(abs(m) * theta) * math.cos(abs(n) * nfp * zeta)
-    #             else:
-    #                 return math.sin(abs(m) * theta) * math.sin(abs(n) * nfp * zeta)
-    #
-    #     x_boundary = np.array([
-    #         xmn * get_fourier_basis(theta=theta, zeta=zeta,
-    #                                 n=n, m=m, nfp=self.nfp)
-    #         for (m, n), xmn in xb
-    #     ])
-    #     x_sum = x_boundary.sum()
-    #     return x_sum
+            yield domain, boundary, None
 
     def eps(self, x: Tensor, RlZ: Tensor, reduction: Optional[str] = "mean") -> Tensor:
         raise NotImplementedError()
 
     def _pde_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
+        #  TODO: use the full force residual
+        return self.f_rho(x, RlZ).mean().abs()
         R = RlZ[:, 0]
         l = RlZ[:, 1]
         Z = RlZ[:, 2]
@@ -1374,8 +1327,60 @@ class Inverse3DMHD(Equilibrium):
 
         return (fsq * jacobian.abs()).sum()
 
+    def f_rho(self, x: Tensor, RlZ: Tensor) -> Tensor:
+        """
+        Compute volume-averaged radial force balance assuming fbeta=0.
+
+        TODO: how to avoid the (2 * rho) factor to go back to flux coordinates?
+        """
+        R = RlZ[:, 0]
+        l = RlZ[:, 1]
+        Z = RlZ[:, 2]
+        rho = x[:, 0]
+        p = self.p_fn(rho**2)
+        iota = self.iota_fn(rho**2)
+        dR_dx = grad(R, x, create_graph=True)
+        Rs = dR_dx[:, 0]
+        Ru = dR_dx[:, 1]
+        Rv = dR_dx[:, 2]
+        dl_dx = grad(l, x, create_graph=True)
+        lu = dl_dx[:, 1]
+        lv = dl_dx[:, 2]
+        dZ_dx = grad(Z, x, create_graph=True)
+        Zs = dZ_dx[:, 0]
+        Zu = dZ_dx[:, 1]
+        Zv = dZ_dx[:, 2]
+        #  Compute jacobian
+        jacobian = R * (Ru * Zs - Zu * Rs)
+        jacobian /= 2 * rho
+        #  Compute magnetic fluxes derivatives
+        phis = self.signgs * self.phi_edge / (2 * torch.pi)
+        chis = iota * phis
+        #  Compute contravariant magnetic field components
+        bsupu = (chis - phis * lv) / jacobian
+        bsupv = phis * (1 + lu) / jacobian
+        #  Compute metric tensor elements
+        guu = Ru**2 + Zu**2
+        gvu = Ru * Rv + Zu * Zv
+        gvv = Rv**2 + R**2 + Zv**2
+        #  Compute covariant magnetic field components
+        bsubu = bsupu * guu + bsupv * gvu
+        bsubv = bsupu * gvu + bsupv * gvv
+        #  Compute current density components
+        jcuru = -self.signgs * grad(bsubv, x, create_graph=True)[:, 0]
+        jcurv = self.signgs * grad(bsubu, x, create_graph=True)[:, 0]
+        #  Compute pressure gradient
+        ps = grad(p, x, create_graph=True)[:, 0]
+        #  Compute radial force
+        f_rho = chis * jcurv - phis * jcuru + mu0 * ps * jacobian.abs()
+        f_rho /= 2 * rho
+        f_rho = f_rho.reshape(-1, self.ntheta, self.nzeta)
+        return f_rho.mean(dim=(1, 2))
+
     def _mae_pde_loss(self, x: Tensor, RlZ: Tensor) -> Tensor:
-        print("MAE metric has not been implemented yet for the inverse 3D ideal MHD equilibrium")
+        print(
+            "MAE metric has not been implemented yet for the inverse 3D ideal MHD equilibrium"
+        )
         return 0
 
     def _boundary_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
@@ -1403,9 +1408,9 @@ class Inverse3DMHD(Equilibrium):
     def _axis_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
         raise NotImplementedError()
 
-    def grid(self, ns: int = None,
-             normalized: bool = None,
-             axis: bool = True) -> Tensor:
+    def grid(
+        self, ns: int = None, normalized: bool = None, axis: bool = True
+    ) -> Tensor:
 
         if ns is None:
             ns = self.ns
@@ -1413,10 +1418,10 @@ class Inverse3DMHD(Equilibrium):
         if axis:
             rho = torch.linspace(0, 1, ns)
         else:
-            rho = torch.linspace(0, 1, ns +1)[1:]
+            rho = torch.linspace(0, 1, ns + 1)[1:]
 
         theta = (2 * torch.linspace(0, 1, self.ntheta) - 1) * math.pi
-        zeta = (torch.linspace(0, 1, self.nzeta)) * math.pi / self.nfp
+        zeta = (torch.linspace(0, 1, self.nzeta)) * 2 * math.pi / self.nfp
         grid = torch.cartesian_prod(rho, theta, zeta)
 
         return grid

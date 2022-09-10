@@ -474,3 +474,106 @@ def test_inverse_3D_jacobian(wout_path, ntheta, nzeta, js_min=1):
         assert torch.allclose(
             jacobian[js], vmec_jacobian[js], atol=1e-3, rtol=0
         ), f"mae={(jacobian[js] - vmec_jacobian[js]).abs().mean():.2e} at rho={rho[js]:.4f}"
+
+
+@pytest.mark.parametrize("wout_path", ("data/wout_HELIOTRON.nc", "data/wout_W7X.nc"))
+@pytest.mark.parametrize("ntheta", (16,))
+@pytest.mark.parametrize("nzeta", (18,))
+@pytest.mark.parametrize("ns", (11,))
+def test_inverse_3D_equif(wout_path, ntheta, nzeta, ns):
+    """
+    Compute and compare equif.
+
+    Achtung: this is not equif as defined in VMEC,
+    but <mu0 fs> when fbeta=0.
+    """
+
+    wout = get_wout(wout_path)
+
+    vmec_ns = wout["ns"][:].data.item()
+    nfp = wout["nfp"][:].data.item()
+
+    equi = Inverse3DMHD.from_vmec(wout_path)
+    equi.ns, equi.ntheta, equi.nzeta = ns, ntheta, nzeta
+
+    #  VMEC radial coordinate (VMEC calculates jacobian on half-mesh)
+    phi = torch.zeros(vmec_ns)
+    phi[1:] = torch.linspace(0, 1, vmec_ns)[1:] - 0.5 / (vmec_ns - 1)
+
+    #  Select subset of flux surfaces to spare memory
+    #  Avoid magnetic axis
+    jss = torch.arange(vmec_ns)
+    jss = jss[torch.linspace(1, vmec_ns - 1, ns, dtype=int)]
+    phi = phi[jss]
+
+    #  Define grid from VMEC
+    rho = torch.sqrt(phi)
+    theta = (2 * torch.linspace(0, 1, ntheta + 1)[:-1] - 1) * torch.pi
+    zeta = (torch.linspace(0, 1, nzeta + 1))[:-1] * 2 * torch.pi / nfp
+    x = torch.cartesian_prod(rho, theta, zeta).to(torch.float64)
+    x.requires_grad_(True)
+
+    RlZ = get_RlZ_from_wout(x, wout_path)
+    fs = equi.f_rho(x, RlZ)
+
+    #  Define utility functions
+    def gradient(tensor: torch.Tensor, factor: float = 1.5):
+        output = torch.empty_like(tensor)
+        hs = 1 / (tensor.size(0) - 1)
+        output[1:-1] = (tensor[2:] - tensor[1:-1]) / hs
+        #  Pad output
+        output[0] = factor * output[1] - (factor - 1) * output[2]
+        output[-1] = factor * output[-2] - (factor - 1) * output[-3]
+        return output
+
+    def to_full_mesh(tensor: torch.Tensor, factor: float = 1.5):
+        tensorf = torch.empty_like(tensor)
+        tensorf[1:-1] = 0.5 * (tensor[1:-1] + tensor[2:])
+        tensorf[0] = factor * tensor[1] - (factor - 1) * tensor[2]
+        tensorf[-1] = factor * tensor[-1] - (factor - 1) * tensor[-2]
+        return tensorf
+
+    vmec_equif = torch.from_numpy(wout["equif"][:].data)
+
+    mu0 = 4 * torch.pi * 1e-7
+    twopi = 2 * torch.pi
+
+    signgs = torch.from_numpy(wout["signgs"][:].data)
+    phiedge = torch.from_numpy(wout["phi"][-1].data)
+    iotaf = torch.from_numpy(wout["iotaf"][:].data)
+    pres = torch.from_numpy(wout["pres"][:].data) * mu0
+
+    phipf = phiedge / twopi / signgs
+
+    presgrad = gradient(pres, factor=2.0)
+
+    vp = torch.from_numpy(wout["vp"][:].data)
+    vpf = to_full_mesh(vp)
+
+    bsubu = torch.from_numpy(wout["bsubumnc"][:, 0].data)
+    bsubv = torch.from_numpy(wout["bsubvmnc"][:, 0].data)
+
+    jcuru = -gradient(bsubv, factor=2.0) * signgs
+    jcurv = gradient(bsubu, factor=2.0) * signgs
+
+    #  First make sure that equif in torch is equal to equif from vmec
+    equif = phipf * iotaf * jcurv - phipf * jcuru + presgrad * vpf
+    equif /= abs(phipf * iotaf * jcurv) + abs(phipf * jcuru) + abs(presgrad) * vpf
+    equif[0] = 2.0 * equif[1] - equif[2]
+    equif[-1] = 2.0 * equif[-2] - equif[-3]
+
+    assert torch.allclose(equif, vmec_equif, atol=1e-13, rtol=0)
+    del equif
+
+    #  Now compute f
+    vmec_fs = phipf * iotaf * jcurv - phipf * jcuru + presgrad * vpf
+    vmec_fs[0] = 2.0 * vmec_fs[1] - vmec_fs[2]
+    vmec_fs[-1] = 2.0 * vmec_fs[-2] - vmec_fs[-3]
+
+    #  Select computed flux surfaces
+    vmec_fs = vmec_fs[jss]
+
+    for js in range(len(jss)):
+        assert torch.allclose(
+            fs[js], vmec_fs[js], atol=1e-3, rtol=0
+        ), f"mae={(fs[js] - vmec_fs[js]).abs():.2e} at rho={rho[js]:.4f}"

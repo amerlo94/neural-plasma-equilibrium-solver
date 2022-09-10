@@ -385,6 +385,7 @@ def get_RlZ_from_wout(x: Tensor, wout_path: str, dtype=torch.float64):
 
     def interp_xmn(x: str):
         phi = torch.from_numpy(wout["phi"][:].data)
+        phi = phi / phi[-1]
         xmn = torch.from_numpy(wout[x][:].data)
         xmns = []
         #  lmns is defined on half-mesh
