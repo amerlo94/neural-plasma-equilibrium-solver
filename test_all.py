@@ -329,7 +329,7 @@ def test_inverse_grad_shafranov_jacobian(wout_path, ntheta, js):
     ), f"mae={(jacobian[js] - vmec_jacobian[js]).abs().mean():.2e} at rho={rho[::equi.ntheta][js]:.4f}"
 
 
-#  TODO: fix lmns[js=1] and zmns
+#  TODO: fix lmns[js=1]
 @pytest.mark.parametrize("wout_path", ("data/wout_HELIOTRON.nc",))
 @pytest.mark.parametrize("ntheta", (16,))
 @pytest.mark.parametrize("nzeta", (18,))
@@ -377,22 +377,26 @@ def test_get_3DRlZ_from_wout(wout_path, ntheta, nzeta, xmn):
         tzmn = torch.cos(angle)
     else:
         tzmn = torch.sin(angle)
-    xmn = torch.as_tensor(wout[xmn][:]).clone()
-    vmec_x = torch.einsum("stzf,sf->stz", tzmn[None, ...], xmn)
+    wout_xmn = torch.as_tensor(wout[xmn][:]).clone()
+    vmec_x = torch.einsum("stzf,sf->stz", tzmn[None, ...], wout_xmn)
 
     for js in range(ns):
+        #  lambda is not defined on axis
+        if xmn == "lmns" and js in (0,):
+            continue
         assert torch.allclose(
             x[js], vmec_x[js], rtol=0, atol=1e-4
         ), f"mae={(x[js] - vmec_x[js]).abs().mean():.2e} at rho={rho[js]:.4f}"
+
 
 # @pytest.mark.parametrize("ns", (21,))
 # @pytest.mark.parametrize("ntheta", (16,))
 # @pytest.mark.parametrize("nzeta", (18,))
 #  TODO: increase grid size
-@pytest.mark.parametrize("wout_path, ns, ntheta, nzeta", [
-    ("data/wout_HELIOTRON.nc", 64, 48, 38),
-    ("data/wout_W7X.nc", 64, 16, 32)
-])
+@pytest.mark.parametrize(
+    "wout_path, ns, ntheta, nzeta",
+    [("data/wout_HELIOTRON.nc", 64, 48, 38), ("data/wout_W7X.nc", 64, 16, 32)],
+)
 def test_inverse_3d_pde_closure(wout_path, ns, ntheta, nzeta):
 
     equi = Inverse3DMHD.from_vmec(wout_path)
@@ -412,10 +416,11 @@ def test_inverse_3d_pde_closure(wout_path, ns, ntheta, nzeta):
 
     assert mean_f < 1e-3
 
-@pytest.mark.parametrize("wout_path, ntheta, nzeta, js", [
-    ("data/wout_HELIOTRON.nc", 16, 16, 16),
-    ("data/wout_W7X.nc", 16, 16, 16)
-])
+
+@pytest.mark.parametrize(
+    "wout_path, ntheta, nzeta, js",
+    [("data/wout_HELIOTRON.nc", 16, 16, 16), ("data/wout_W7X.nc", 16, 16, 16)],
+)
 # @pytest.mark.parametrize("js", range(1, 256))
 def test_inverse_3D_jacobian(wout_path, ntheta, nzeta, js, ns=None):
 
@@ -444,12 +449,12 @@ def test_inverse_3D_jacobian(wout_path, ntheta, nzeta, js, ns=None):
 
     # VMEC radial coordinate (VMEC calculates jacobian on Half-mesh)
     phi = torch.zeros(ns)
-    phi[1:] = torch.linspace(0, 1, ns)[1:] - 0.5 /(ns-1)
+    phi[1:] = torch.linspace(0, 1, ns)[1:] - 0.5 / (ns - 1)
     rho = torch.sqrt(phi)
 
     # Set equilibrium grid same as VMEC
     x = equi.grid()
-    x[:, 0] = rho.repeat_interleave(equi.ntheta*equi.nzeta)
+    x[:, 0] = rho.repeat_interleave(equi.ntheta * equi.nzeta)
     x = x.to(torch.float64)
     x.requires_grad_()
 
@@ -493,7 +498,9 @@ def test_inverse_3D_jacobian(wout_path, ntheta, nzeta, js, ns=None):
     zetas = torch.unique(zeta)
     rhos = torch.unique(rho)
 
-    costzmn = torch.zeros(equi.ntheta, equi.nzeta, len(toroidal_modes), dtype=torch.float64)
+    costzmn = torch.zeros(
+        equi.ntheta, equi.nzeta, len(toroidal_modes), dtype=torch.float64
+    )
     vmec_jacobian = torch.zeros(ns, equi.ntheta, equi.nzeta, dtype=torch.float64)
     for t, _ in enumerate(rhos):
         for i, theta in enumerate(thetas):
@@ -512,5 +519,3 @@ def test_inverse_3D_jacobian(wout_path, ntheta, nzeta, js, ns=None):
     assert torch.allclose(
         jacobian[js], vmec_jacobian[js], atol=1e-1, rtol=1e-1
     ), f"mae={(jacobian[js] - vmec_jacobian[js]).abs().mean():.2e} at rho={rho[::equi.ntheta][js]:.4f}"
-
-

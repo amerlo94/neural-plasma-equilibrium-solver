@@ -379,17 +379,18 @@ def get_RlZ_from_wout(x: Tensor, wout_path: str, dtype=torch.float64):
 
     ns = wout["ns"][:].data.item()
     hs = 1 / (ns - 1)
-    phi = torch.linspace(0, 1, ns)
 
     xm = torch.from_numpy(wout["xm"][:].data)
     xn = torch.from_numpy(wout["xn"][:].data)
 
     def interp_xmn(x: str):
+        phi = torch.from_numpy(wout["phi"][:].data)
         xmn = torch.from_numpy(wout[x][:].data)
         xmns = []
         #  lmns is defined on half-mesh
         if x == "lmns":
-            phi[1:] = torch.linspace(0, 1, ns)[1:] - 0.5 / (ns - 1)
+            phi = torch.linspace(0, 1, ns)[1:] - 0.5 / (ns - 1)
+            xmn = xmn[1:]
         for mn in range(xmn.shape[1]):
             m = int(xm[mn])
             #  Interpolate xmn / rho ** m
@@ -409,7 +410,7 @@ def get_RlZ_from_wout(x: Tensor, wout_path: str, dtype=torch.float64):
             else:
                 idx_l[idx_l == -1] = 1
                 idx_l[idx_l == 0] = 1
-            idx_l[idx_l == ns - 2] = ns - 3
+            idx_l[idx_l == len(phi) - 2] = len(phi) - 3
             #  Coefficients for the quadratic interpolation
             #  f(x) = b0 + b1 * (x - x0) + b2 * (x - x0) * (x - x1)
             b0 = xmn_[idx_l]
