@@ -1150,6 +1150,12 @@ class Inverse3DMHD(Equilibrium):
 
         self.wout_path = wout_path
 
+        ############################
+        # TODO: remove me
+        self._RlZ = None
+        self._t = 0
+        ############################
+
     @classmethod
     def from_vmec(cls, wout_path, **kwargs):
         """Instatiate Equilibrium from VMEC wout file."""
@@ -1222,6 +1228,14 @@ class Inverse3DMHD(Equilibrium):
             rho = torch.ones(1)
             boundary = torch.cartesian_prod(rho, theta, zeta)
 
+            ################
+            # TODO: remove me!
+            if self._RlZ is None:
+                from utils import get_RlZ_from_wout
+
+                self._RlZ = get_RlZ_from_wout(domain, self.wout_path)
+            ################
+
             yield domain, boundary, None
 
     def eps(self, x: Tensor, RlZ: Tensor, reduction: Optional[str] = "mean") -> Tensor:
@@ -1229,7 +1243,13 @@ class Inverse3DMHD(Equilibrium):
 
     def _pde_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
         #  TODO: use the full force residual
-        return self.f_rho(x, RlZ).mean().abs()
+        #  TODO: remove data loss
+        data_loss = ((RlZ - self._RlZ) ** 2).mean()
+        pde_loss = self.f_rho(x, RlZ).abs().mean()
+        alpha = 1 - math.exp(-1e-4 * self._t)
+        self._t += 1
+        print(f"data={data_loss:.2e}, pde={pde_loss:.2e}, alpha={alpha:.2e}")
+        return alpha * pde_loss + (1 - alpha) * data_loss
         R = RlZ[:, 0]
         l = RlZ[:, 1]
         Z = RlZ[:, 2]

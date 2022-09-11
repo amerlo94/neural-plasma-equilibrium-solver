@@ -133,8 +133,9 @@ def train(
     # )
     optimizer = torch.optim.Adam(
         model.parameters(),
-        lr=1e-6,
+        lr=1e-3,
     )
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
 
     #########
     # Train #
@@ -165,6 +166,7 @@ def train(
             optimizer.step()
             # TODO: step for L-BFGS-B
             # optimizer.step(closure)
+            scheduler.step()
 
             #  Print the current loss:
             #  this is the loss at the given step and not the
@@ -192,6 +194,7 @@ def train(
                     ("rmnl_g", "lmnl_g", "zmnl_g"), (rmnl_grad, lmnl_grad, zmnl_grad)
                 ):
                     string += ", " + v
+                string += f", lr={scheduler.get_last_lr()[0]:.2e}"
                 print(string)
 
             #  Update running axis guess

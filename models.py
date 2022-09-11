@@ -303,12 +303,16 @@ class Inverse3DMHDMLP(torch.nn.Module):
         # import numpy as np
 
         # plt.ion()
-        # self._fig, ax = plt.subplots(1, 1, tight_layout=True)
-        # self._idx = 0
-        # (self._line1,) = ax.plot(
-        #     np.linspace(0, 1, 99),
-        #     np.linspace(self.Ra[self._idx], self.Rb[self._idx], 99),
-        # )
+        # # self._fig, ax = plt.subplots(1, 1, tight_layout=True)
+        # # self._idx = 0
+        # # (self._line1,) = ax.plot(
+        # #     np.linspace(0, 1, 99),
+        # #     np.linspace(self.Ra[self._idx], self.Rb[self._idx], 99),
+        # # )
+        # self._fig, self._ax = plt.subplots(1, 1, tight_layout=True)
+        # self._t = [0]
+        # self._data = [self.rmnl[0, 0].detach()]
+        # (self._line1,) = self._ax.plot(self._t, self._data)
         ############################
 
     def forward(self, x: Tensor) -> Tensor:
@@ -355,10 +359,16 @@ class Inverse3DMHDMLP(torch.nn.Module):
 
         #######################
         # TODO: remove me!
-        # self._line1.set_xdata(rho.detach() ** 2)
-        # self._line1.set_ydata(rmnc[:, self._idx].detach())
+        # self._t.append(self._t[-1] + 1)
+        # self._data.append(self.rmnl[0, 0].detach().item())
+        # self._line1.set_xdata(self._t)
+        # self._line1.set_ydata(self._data)
+        # # self._line1.set_xdata(rho.detach() ** 2)
+        # # self._line1.set_ydata(rmnc[:, self._idx].detach())
         # self._fig.canvas.draw()
         # self._fig.canvas.flush_events()
+        # self._ax.relim()
+        # self._ax.autoscale_view()
         #######################
 
         RlZ = torch.stack([R, l, Z], dim=-1)
