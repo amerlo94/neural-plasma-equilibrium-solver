@@ -71,12 +71,9 @@ def get_equilibrium_and_model(**equi_kws):
             model_kws = {
                 "Rb": equi.Rb,
                 "Zb": equi.Zb,
-                "ns": equi.ns,
-                "ntheta": equi.ntheta,
-                "nzeta": equi.nzeta,
                 "nfp": equi.nfp,
-                "max_mpol": equi.max_mpol,
-                "max_ntor": equi.max_ntor,
+                "mpol": equi.max_mpol,
+                "ntor": equi.max_ntor,
                 "sym": equi.sym,
             }
         model = Inverse3DMHDMLP(**model_kws)

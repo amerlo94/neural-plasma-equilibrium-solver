@@ -5,6 +5,7 @@ from typing import Union, Tuple
 import torch
 from torch import Tensor
 
+
 class HighBetaMLP(torch.nn.Module):
     def __init__(self, width: int = 16, a: float = 1.0, psi_0: float = 1.0) -> None:
         super().__init__()
@@ -210,173 +211,110 @@ class InverseGradShafranovMLP(torch.nn.Module):
         return RlZ
 
 
+#  TODO: rename it Legendre model
 class Inverse3DMHDMLP(torch.nn.Module):
     def __init__(
         self,
         Rb,
         Zb,
-        ns: int,
-        ntheta: int,
-        nzeta: int,
         nfp: int,
         sym: bool = True,
-        width: int = 16,
-        # if m=2 then m ∈ {0, 1, 2}
-        max_mpol: int = 1,
-        # if n=1 then n ∈ {-1, 0, 1}, max_ntor is highest positive toroidal mode number in output
-        max_ntor: int = 1,
+        #  TODO: add argument here in train and set to 1 by default
+        lrad: int = 2,
+        mpol: int = 1,
+        ntor: int = 1,
     ) -> None:
         super().__init__()
 
         assert sym, NotImplementedError("non-symmetric not implemented yet")
 
-        self.max_mpol = max_mpol
-        self.max_ntor = max_ntor
-        self.mpol_shape = max_mpol + 1  # maximum of first fourier-modes matrix index
-        self.ntor_shape = (
-            max_ntor * 2 + 1
-        )  # maximum of second fourier-modes matrix index
-        self.poloidal_modes = torch.arange(0, self.max_mpol + 1)  # [:, None]
-        self.toroidal_modes = torch.arange(-self.max_ntor, self.max_ntor + 1)
-        idx = self.mpol_shape * self.ntor_shape
-
-        #  grid for fourier features
-        self.ns = ns
-        self.ntheta = ntheta
-        self.nzeta = nzeta
+        self.lrad = lrad
+        self.mpol = mpol
+        self.ntor = ntor
         self.nfp = nfp
 
-        self.R_branch = torch.nn.Sequential(
-            torch.nn.Linear(1, width),
-            torch.nn.Tanh(),
-            # torch.nn.Linear(width, width),
-            # torch.nn.Tanh(),
-            torch.nn.Linear(width, idx),
-        )
-        self.l_branch = torch.nn.Sequential(
-            torch.nn.Linear(1, width),
-            torch.nn.Tanh(),
-            # torch.nn.Linear(width, width),
-            # torch.nn.Tanh(),
-            torch.nn.Linear(width, idx),
-        )
-        self.Z_branch = torch.nn.Sequential(
-            torch.nn.Linear(1, width),
-            torch.nn.Tanh(),
-            # torch.nn.Linear(width, width),
-            # torch.nn.Tanh(),
-            torch.nn.Linear(width, idx),
-        )
+        #  Build Fourier modes
+        poloidal_modes = torch.arange(self.mpol + 1)
+        toroidal_modes = torch.arange(-self.ntor, self.ntor + 1) * nfp
+        mn = torch.cartesian_prod(poloidal_modes, toroidal_modes)[self.ntor :]
+        self.xm = mn[:, 0]
+        self.xn = mn[:, 1]
 
-        self.Rb = Rb
-        self.Zb = Zb
+        #  Legendre polynomial coefficients
+        #  For R and Z, the last Legendre coefficients if fixed so to satisfy the
+        #  boundary condition
+        self.rmnl = torch.nn.parameter.Parameter(torch.randn(len(mn), self.lrad))
+        self.lmnl = torch.nn.parameter.Parameter(torch.randn(len(mn), self.lrad + 1))
+        self.zmnl = torch.nn.parameter.Parameter(torch.randn(len(mn), self.lrad))
 
-        #
-        # zero_pad = torch.nn.ZeroPad2d((0, (self.mpol_shape-self.Rb.shape[0]),
-        #                                0, (self.ntor_shape-self.Rb.shape[1])))
-        # self.Rb = zero_pad(self.Rb)
-        # self.Zb = zero_pad(self.Zb)
+        #  TODO: they need to be normalized
+        def legendre_fn(s: Tensor) -> Tensor:
+            s = 2 * s - 1
+            s = s.view(-1)
+            polys = [torch.ones_like(s), s]
+            for n in range(1, self.lrad):
+                poly = ((2 * n + 1) * s * polys[n] - n * polys[n - 1]) / (n + 1)
+                polys.append(poly)
+            return torch.stack(polys, dim=-1)
 
-        # self.lb = torch.ones(self.mpol_shape, self.ntor_shape)
-        # self.lb[0, :] = 0
-        # self.lb[:, 0] = 0
+        self.legendre = legendre_fn
 
+        self.Rb = Rb.view(-1)[self.ntor :]
+        self.Zb = Zb.view(-1)[self.ntor :]
+
+        #  Initialize model
         for tensor in (
-            self.R_branch[-1].weight,
-            self.Z_branch[-1].weight,
-            self.l_branch[-1].weight,
-        ):
-            torch.nn.init.normal_(tensor, std=1e-2)
-        for tensor in (
-            self.R_branch[-1].bias,
-            self.l_branch[-1].bias,
-            self.Z_branch[-1].bias,
+            self.rmnl,
+            self.lmnl,
+            self.zmnl,
         ):
             torch.nn.init.zeros_(tensor)
 
         with torch.no_grad():
-            shape = (max_mpol + 1, 2 * max_ntor + 1)
-            self.R_branch[-1].bias.data.view(shape)[self.Rb != 0] = self.Rb[
-                self.Rb != 0
-            ]
-            self.Z_branch[-1].bias.data.view(shape)[self.Zb != 0] = self.Zb[
-                self.Zb != 0
-            ]
-
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.rmnl.data[..., 0][self.Rb != 0] = self.Rb[self.Rb != 0]
+            self.zmnl.data[..., 0][self.Zb != 0] = self.Zb[self.Zb != 0]
 
     def forward(self, x: Tensor) -> Tensor:
-        rho = x[:, 0].view(-1, 1)
-        theta = x[:, 1].view(-1, 1)
-        zeta = x[:, 2].view(-1, 1)
 
-        # compute R, lambda, Z
-        rho_factor = torch.cat(
-            [rho**m for m in range(self.mpol_shape)], dim=-1
-        ).unsqueeze(-1)
-        # rho_factor = rho_factor.view(-1, self.ntheta, self.nzeta, rho_factor.shape[1], 1)
+        rho = x[:, 0]
+        theta = x[:, 1]
+        zeta = x[:, 2]
 
-        # basis = get_fourier_basis(mpol=self.max_mpol - 1, ntor=int((self.max_ntor - 1) / 2),
-        #                           ntheta=self.ntheta, nzeta=self.nzeta, include_endpoint=False,
-        #                           num_field_period=self.nfp, dtype=rho.dtype, device=self.device)
+        angle = theta[:, None] * self.xm[None, :] - zeta[:, None] * self.xn[None, :]
+        costzmn = torch.cos(angle)
+        sintzmn = torch.sin(angle)
 
-        # costzmn0, sintzmn0 = get_fourier_basis(mpol=self.max_mpol-1, ntor=int((self.max_ntor-1)/2),
-        #                            ntheta=self.ntheta, nzeta=self.nzeta,
-        #                            grid=x, include_endpoint=False, num_field_period=self.nfp,
-        #                            dtype=rho.dtype, device=self.device)
+        rho_factor = torch.stack([rho**m for m in self.xm], dim=-1)
 
-        # costzmn = torch.cos((self.poloidal_modes[None, None, :, None] * theta.unique()[:, None, None, None]) -
-        # (self.nfp * self.toroidal_modes[None, None, None, :] * zeta.unique()[None, :, None, None]))[None, :]
-        # sintzmn = torch.sin((self.poloidal_modes[None, None, :, None] * theta.unique()[:, None, None, None]) -
-        # (self.nfp * self.toroidal_modes[None, None, None, :] * zeta.unique()[None, :, None, None]))[None, :]
+        bases = self.legendre(rho**2).view(-1, 1, self.lrad + 1)
 
-        # costzmn = torch.cos(
-        #     self.poloidal_modes[None, None, :, None] * theta[:, None, None, None] -
-        #     self.nfp * self.toroidal_modes[None, None, None, :] * zeta[None, :, None,
-        #                                                            None])
-        # sintzmn = torch.sin(
-        #     (self.poloidal_modes[None, None, :, None] * theta[:, None, None, None]) -
-        #     (self.nfp * self.toroidal_modes[None, None, None, :] * zeta[None, :, None,
-        #                                                            None]))
-
-        f = (
-            self.poloidal_modes[:, None] * theta[:, None]
-            - (self.nfp * self.toroidal_modes * zeta).unsqueeze(1)
+        #  Satisfy boundary
+        #  When a function is expanded in Legendre polynomials,
+        #  the value at s=1 is simply the sum of the polynomial coefficients.
+        #  f(s=1) = x0 + x1 + x2 + x3 + ...
+        #  Set the highest order term to satisfy the boundary by construction
+        #  xn = Xb - (x0 + x1 + x2 + x3 + ...)
+        rmnl = torch.cat(
+            [self.rmnl, (self.Rb - self.rmnl.sum(dim=-1))[..., None]],
+            dim=-1,
+        )
+        zmnl = torch.cat(
+            [self.zmnl, (self.Zb - self.zmnl.sum(dim=-1))[..., None]],
+            dim=-1,
         )
 
-        costzmn = torch.cos(f)
-        sintzmn = torch.sin(f)
+        rmnc = rho_factor * (bases * rmnl[None, ...]).sum(dim=-1)
+        R = (costzmn * rmnc).sum(dim=-1)
 
-        # R = (
-        #     rho_factor
-        #     * self.Rb
-        #     * (1 + self.R_branch(rho).reshape(-1, self.mpol_shape, self.ntor_shape))
-        # )
-        # R = torch.einsum("smn,smn->s", costzmn, R).contiguous()
-        rmnc = rho_factor * self.R_branch(rho).reshape(
-            -1, self.mpol_shape, self.ntor_shape
-        )
-        rmnc[:, 0, : self.max_ntor] = 0
-        R = (costzmn * rmnc).sum(dim=(1, 2))
-        # l = (
-        #     rho_factor
-        #     * self.lb
-        #     * (1 + self.l_branch(rho).reshape(-1, self.mpol_shape, self.ntor_shape))
-        # )
-        lmns = rho_factor * self.l_branch(rho).reshape(
-            -1, self.mpol_shape, self.ntor_shape
-        )
-        lmns[:, 0, : self.max_ntor + 1] = 0
-        l = (sintzmn * lmns).sum(dim=(1, 2))
-        # Z = (
-        #     rho_factor
-        #     * self.Zb
-        #     * (1 + self.Z_branch(rho).reshape(-1, self.mpol_shape, self.ntor_shape))
-        # )
-        zmns = rho_factor * self.Z_branch(rho).reshape(
-            -1, self.mpol_shape, self.ntor_shape
-        )
-        zmns[:, 0, : self.max_ntor + 1] = 0
-        Z = (sintzmn * zmns).sum(dim=(1, 2))
+        lmns = rho_factor * (bases * self.lmnl[None, ...]).sum(dim=-1)
+        #  Lamda is a periodi function
+        lmns[:, 0] = 0
+        l = (sintzmn * lmns).sum(dim=-1)
+
+        zmns = rho_factor * (bases * zmnl[None, ...]).sum(dim=-1)
+        #  Assume stellarator symmetry
+        zmns[:, 0] = 0
+        Z = (sintzmn * zmns).sum(dim=-1)
+
         RlZ = torch.stack([R, l, Z], dim=-1)
         return RlZ
