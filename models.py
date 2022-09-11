@@ -217,6 +217,8 @@ class Inverse3DMHDMLP(torch.nn.Module):
         self,
         Rb,
         Zb,
+        Ra,
+        Za,
         nfp: int,
         sym: bool = True,
         #  TODO: add argument here in train and set to 1 by default
@@ -262,6 +264,9 @@ class Inverse3DMHDMLP(torch.nn.Module):
         self.Rb = Rb.view(-1)[self.ntor :]
         self.Zb = Zb.view(-1)[self.ntor :]
 
+        self.Ra = torch.nn.functional.pad(Ra, (0, len(mn) - len(Ra)), value=0)
+        self.Za = torch.nn.functional.pad(Za, (0, len(mn) - len(Ra)), value=0)
+
         #  Initialize model
         for tensor in (
             self.rmnl,
@@ -271,8 +276,40 @@ class Inverse3DMHDMLP(torch.nn.Module):
             torch.nn.init.zeros_(tensor)
 
         with torch.no_grad():
-            self.rmnl.data[..., 0][self.Rb != 0] = self.Rb[self.Rb != 0]
-            self.zmnl.data[..., 0][self.Zb != 0] = self.Zb[self.Zb != 0]
+            #  m=0 modes:
+            #  linear interpolation between the magnetic axis and the boundary
+            self.rmnl.data[: self.ntor + 1, 0] = 0.5 * (
+                self.Rb[: self.ntor + 1] + self.Ra[: self.ntor + 1]
+            )
+            self.zmnl.data[: self.ntor + 1, 0] = 0.5 * (
+                self.Zb[: self.ntor + 1] + self.Za[: self.ntor + 1]
+            )
+            #  satisfy axis guess at initialization
+            if self.lrad >= 2:
+                self.rmnl.data[: self.ntor + 1, 1] = 0.5 * (
+                    self.Rb[: self.ntor + 1] - self.Ra[: self.ntor + 1]
+                )
+                self.zmnl.data[: self.ntor + 1, 1] = 0.5 * (
+                    self.Zb[: self.ntor + 1] - self.Za[: self.ntor + 1]
+                )
+            #  m>0 modes:
+            #  rho**m Xb as initial guess
+            self.rmnl.data[self.ntor + 1 :, 0] = self.Rb[self.ntor + 1 :]
+            self.zmnl.data[self.ntor + 1 :, 0] = self.Zb[self.ntor + 1 :]
+
+        ############################
+        # TODO: remove me! Only used for debugging during training
+        # import matplotlib.pyplot as plt
+        # import numpy as np
+
+        # plt.ion()
+        # self._fig, ax = plt.subplots(1, 1, tight_layout=True)
+        # self._idx = 0
+        # (self._line1,) = ax.plot(
+        #     np.linspace(0, 1, 99),
+        #     np.linspace(self.Ra[self._idx], self.Rb[self._idx], 99),
+        # )
+        ############################
 
     def forward(self, x: Tensor) -> Tensor:
 
@@ -315,6 +352,14 @@ class Inverse3DMHDMLP(torch.nn.Module):
         #  Assume stellarator symmetry
         zmns[:, 0] = 0
         Z = (sintzmn * zmns).sum(dim=-1)
+
+        #######################
+        # TODO: remove me!
+        # self._line1.set_xdata(rho.detach() ** 2)
+        # self._line1.set_ydata(rmnc[:, self._idx].detach())
+        # self._fig.canvas.draw()
+        # self._fig.canvas.flush_events()
+        #######################
 
         RlZ = torch.stack([R, l, Z], dim=-1)
         return RlZ

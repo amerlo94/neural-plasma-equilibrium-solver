@@ -71,6 +71,8 @@ def get_equilibrium_and_model(**equi_kws):
             model_kws = {
                 "Rb": equi.Rb,
                 "Zb": equi.Zb,
+                "Ra": equi.Ra,
+                "Za": equi.Za,
                 "nfp": equi.nfp,
                 "mpol": equi.max_mpol,
                 "ntor": equi.max_ntor,
@@ -131,7 +133,7 @@ def train(
     # )
     optimizer = torch.optim.Adam(
         model.parameters(),
-        lr=1e-4,
+        lr=1e-6,
     )
 
     #########

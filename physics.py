@@ -1128,6 +1128,7 @@ class Inverse3DMHD(Equilibrium):
         #  Sign of the Jacobian, must be=1 (right-handed) or=-1 (left-handed)
         self.signgs = signgs
 
+        #  Boundary surface
         self.Rb = torch.as_tensor(Rb)
         self.Zb = torch.as_tensor(Zb)
 
@@ -1153,9 +1154,9 @@ class Inverse3DMHD(Equilibrium):
         self.Rb = zero_pad(self.Rb)
         self.Zb = zero_pad(self.Zb)
 
-        # axis initial guess
-        self.Ra = Ra
-        self.Za = Za
+        #  Magnetic axis initial guess
+        self.Ra = torch.as_tensor(Ra)
+        self.Za = torch.as_tensor(Za)
 
         self.phi_edge = phi_edge
         self.ntheta = ntheta
@@ -1353,6 +1354,11 @@ class Inverse3DMHD(Equilibrium):
         #  Compute jacobian
         jacobian = R * (Ru * Zs - Zu * Rs)
         jacobian /= 2 * rho
+        #  TODO: remove this check or move it in pde loss
+        #        this check assumes that signgs = -1
+        jacobian_max = jacobian.max().item()
+        if jacobian_max > 0:
+            print(f"Jacobian changed sign! Max jacobian={jacobian_max:.2f}")
         #  Compute magnetic fluxes derivatives
         phis = self.signgs * self.phi_edge / (2 * torch.pi)
         chis = iota * phis
