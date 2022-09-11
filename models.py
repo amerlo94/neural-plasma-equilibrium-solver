@@ -261,8 +261,8 @@ class Inverse3DMHDMLP(torch.nn.Module):
 
         self.legendre = legendre_fn
 
-        self.Rb = Rb.view(-1)[self.ntor :]
-        self.Zb = Zb.view(-1)[self.ntor :]
+        self.Rb = Rb
+        self.Zb = Zb
 
         self.Ra = torch.nn.functional.pad(Ra, (0, len(mn) - len(Ra)), value=0)
         self.Za = torch.nn.functional.pad(Za, (0, len(mn) - len(Ra)), value=0)
@@ -344,7 +344,7 @@ class Inverse3DMHDMLP(torch.nn.Module):
         R = (costzmn * rmnc).sum(dim=-1)
 
         lmns = rho_factor * (bases * self.lmnl[None, ...]).sum(dim=-1)
-        #  Lamda is a periodi function
+        #  Lamda is a periodic function
         lmns[:, 0] = 0
         l = (sintzmn * lmns).sum(dim=-1)
 

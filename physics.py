@@ -1112,47 +1112,33 @@ class Inverse3DMHD(Equilibrium):
         max_ntor: Optional[int] = 1,
         **kwargs,
     ) -> None:
+
         super().__init__(**kwargs)
+
         self.p = torch.as_tensor(p)
         self.iota = torch.as_tensor(iota)
+
         self.nfp = nfp
         self.sym = sym
 
         self.max_mpol = max_mpol
         self.max_ntor = max_ntor
-        self.poloidal_modes = torch.arange(0, max_mpol + 1, dtype=int)
-        self.toroidal_modes = torch.arange(-max_ntor, max_ntor + 1, dtype=int)
-        self.mpol_shape = max_mpol + 1
-        self.ntor_shape = max_ntor * 2 + 1
+
+        #  Build Fourier modes
+        poloidal_modes = torch.arange(self.max_mpol + 1)
+        toroidal_modes = torch.arange(-self.max_ntor, self.max_ntor + 1) * self.nfp
+        mn = torch.cartesian_prod(poloidal_modes, toroidal_modes)[self.max_ntor :]
+        self.xm = mn[:, 0]
+        self.xn = mn[:, 1]
 
         #  Sign of the Jacobian, must be=1 (right-handed) or=-1 (left-handed)
         self.signgs = signgs
 
         #  Boundary surface
-        self.Rb = torch.as_tensor(Rb)
-        self.Zb = torch.as_tensor(Zb)
-
-        # TODO: what is this? Remove if not necessary
-        if abs(self.ntor_shape - self.Rb.shape[1]) > 1:
-            zero_pad = torch.nn.ZeroPad2d(
-                (
-                    int(self.ntor_shape - self.Rb.shape[1]) // 2,
-                    int(self.ntor_shape - self.Rb.shape[1]) // 2,
-                    0,
-                    (self.mpol_shape - self.Rb.shape[0]),
-                )
-            )
-        else:
-            zero_pad = torch.nn.ZeroPad2d(
-                (
-                    0,
-                    (self.ntor_shape - self.Rb.shape[1]),
-                    0,
-                    (self.mpol_shape - self.Rb.shape[0]),
-                )
-            )
-        self.Rb = zero_pad(self.Rb)
-        self.Zb = zero_pad(self.Zb)
+        Rb = torch.as_tensor(Rb).view(-1)[self.max_ntor :]
+        Zb = torch.as_tensor(Zb).view(-1)[self.max_ntor :]
+        self.Rb = torch.nn.functional.pad(Rb, (0, len(mn) - len(Rb)), value=0)
+        self.Zb = torch.nn.functional.pad(Zb, (0, len(mn) - len(Rb)), value=0)
 
         #  Magnetic axis initial guess
         self.Ra = torch.as_tensor(Ra)
@@ -1161,8 +1147,6 @@ class Inverse3DMHD(Equilibrium):
         self.phi_edge = phi_edge
         self.ntheta = ntheta
         self.nzeta = nzeta
-        self.costzmn = None
-        self.sintzmn = None
 
         self.wout_path = wout_path
 
@@ -1393,23 +1377,20 @@ class Inverse3DMHD(Equilibrium):
 
         assert torch.allclose(x[:, 0], torch.ones(x.shape[0]))
 
-        theta = x[:, 1].view(-1, 1)
-        zeta = x[:, 2].view(-1, 1)
+        theta = x[:, 1]
+        zeta = x[:, 2]
 
-        f = (
-            self.poloidal_modes[:, None] * theta[:, None]
-            - self.nfp * self.toroidal_modes[None, :] * zeta[:, None]
-        )
+        angle = theta[:, None] * self.xm[None, :] - zeta[:, None] * self.xn[None, :]
+        costzmn = torch.cos(angle)
+        sintzmn = torch.sin(angle)
 
-        costzmn = torch.cos(f)
-        sintzmn = torch.sin(f)
-
-        Rb = torch.einsum("smn, smn -> s", costzmn, self.Rb.unsqueeze(0)).contiguous()
-        Zb = torch.einsum("smn, smn -> s", sintzmn, self.Zb.unsqueeze(0)).contiguous()
+        Rb = (costzmn * self.Rb).sum(dim=-1)
+        Zb = (sintzmn * self.Zb).sum(dim=-1)
 
         R = RlZ[:, 0]
         Z = RlZ[:, 2]
-        return ((R - Rb.view(-1)) ** 2).sum() + ((Z - Zb.view(-1)) ** 2).sum()
+
+        return (((R - Rb) ** 2) + ((Z - Zb) ** 2)).sum()
 
     def _axis_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
         raise NotImplementedError()
