@@ -133,7 +133,7 @@ def train(
     # )
     optimizer = torch.optim.Adam(
         model.parameters(),
-        lr=1e-3,
+        lr=learning_rate,
     )
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
 

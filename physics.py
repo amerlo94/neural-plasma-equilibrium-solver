@@ -94,16 +94,18 @@ class Equilibrium(IterableDataset):
         self,
         x_domain: Tensor,
         psi_domain: Tensor,
-        x_boundary: Tensor,
-        psi_boundary: Tensor,
+        x_boundary: Optional[Tensor] = None,
+        psi_boundary: Optional[Tensor] = None,
         x_axis: Optional[Tensor] = None,
         psi_axis: Optional[Tensor] = None,
         return_dict: Optional[bool] = False,
     ) -> Tensor:
         loss = {}
         loss["pde"] = self.pde_closure(x_domain, psi_domain)
-        loss["boundary"] = self.boundary_closure(x_boundary, psi_boundary)
-        loss["tot"] = loss["pde"] + loss["boundary"]
+        loss["tot"] = loss["pde"]
+        if x_boundary is not None:
+            loss["boundary"] = self.boundary_closure(x_boundary, psi_boundary)
+            loss["tot"] += loss["boundary"]
         if x_axis is not None:
             loss["axis"] = self.axis_closure(x_axis, psi_axis)
             loss["tot"] += loss["axis"]
@@ -1242,14 +1244,6 @@ class Inverse3DMHD(Equilibrium):
         raise NotImplementedError()
 
     def _pde_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
-        #  TODO: use the full force residual
-        #  TODO: remove data loss
-        data_loss = ((RlZ - self._RlZ) ** 2).mean()
-        pde_loss = self.f_rho(x, RlZ).abs().mean()
-        alpha = 1 - math.exp(-1e-4 * self._t)
-        self._t += 1
-        print(f"data={data_loss:.2e}, pde={pde_loss:.2e}, alpha={alpha:.2e}")
-        return alpha * pde_loss + (1 - alpha) * data_loss
         R = RlZ[:, 0]
         l = RlZ[:, 1]
         Z = RlZ[:, 2]
@@ -1398,7 +1392,7 @@ class Inverse3DMHD(Equilibrium):
         rho = x[:, 0]
         #  Compute the flux surface profiles
         #  self.*_fn(s), where s = rho ** 2
-        iota = self.iota_fn(rho ** 2)
+        iota = self.iota_fn(rho**2)
         dR_dx = grad(R, x, create_graph=True)
         # {s,u,v} = {rho, theta, ζ}
         Rs = dR_dx[:, 0]
@@ -1419,9 +1413,9 @@ class Inverse3DMHD(Equilibrium):
         bsupu = 1 / jacobian * (chis - phis * lv)
         bsupv = phis / jacobian * (1 + lu)
         #  Compute the metric tensor elements
-        guu = Ru ** 2 + Zu ** 2
+        guu = Ru**2 + Zu**2
         gvu = Ru * Rv + Zu * Zv
-        gvv = Rv ** 2 + R ** 2 + Zv ** 2
+        gvv = Rv**2 + R**2 + Zv**2
         #  compute covariant mag. field components
         bsubu = bsupu * guu + bsupv * gvu
         bsubv = bsupu * gvu + bsupv * gvv
@@ -1443,7 +1437,7 @@ class Inverse3DMHD(Equilibrium):
         rho = x[:, 0]
         #  Compute the flux surface profiles
         #  self.*_fn(s), where s = rho ** 2
-        iota = self.iota_fn(rho ** 2)
+        iota = self.iota_fn(rho**2)
         dR_dx = grad(R, x, create_graph=True)
         # {s,u,v} = {rho, theta, ζ}
         Rs = dR_dx[:, 0]
@@ -1463,12 +1457,12 @@ class Inverse3DMHD(Equilibrium):
         #  Compute the magnetic fluxes derivatives
         phis = self.phi_edge / (2 * torch.pi)
         chis = iota * phis
-        bsupu =  (chis - phis * lv) / jacobian
+        bsupu = (chis - phis * lv) / jacobian
         bsupv = phis * (1 + lu) / jacobian
         #  Compute the metric tensor elements
         guu = Ru**2 + Zu**2
         gvu = Ru * Rv + Zu * Zv
-        gvv = Rv ** 2 + R ** 2 + Zv ** 2
+        gvv = Rv**2 + R**2 + Zv**2
         gus = Ru * Rs + Zu * Zs
         gvs = Rv * Rs + Zv * Zs
 
