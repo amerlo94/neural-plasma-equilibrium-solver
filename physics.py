@@ -1387,6 +1387,104 @@ class Inverse3DMHD(Equilibrium):
         f_rho = f_rho.reshape(-1, self.ntheta, self.nzeta)
         return f_rho.mean(dim=(1, 2))
 
+    def Jsuprho(self, x: Tensor, RlZ: Tensor) -> Tensor:
+        """
+        J^rho = f_beta
+        """
+
+        R = RlZ[:, 0]
+        l = RlZ[:, 1]
+        Z = RlZ[:, 2]
+        rho = x[:, 0]
+        #  Compute the flux surface profiles
+        #  self.*_fn(s), where s = rho ** 2
+        iota = self.iota_fn(rho ** 2)
+        dR_dx = grad(R, x, create_graph=True)
+        # {s,u,v} = {rho, theta, ζ}
+        Rs = dR_dx[:, 0]
+        Ru = dR_dx[:, 1]
+        Rv = dR_dx[:, 2]
+        dl_dx = grad(l, x, create_graph=True)
+        lu = dl_dx[:, 1]
+        lv = dl_dx[:, 2]
+        dZ_dx = grad(Z, x, create_graph=True)
+        Zs = dZ_dx[:, 0]
+        Zu = dZ_dx[:, 1]
+        Zv = dZ_dx[:, 2]
+        #  Compute jacobian
+        jacobian = R * (Ru * Zs - Zu * Rs)
+        #  Compute the magnetic fluxes derivatives
+        phis = self.phi_edge * rho / torch.pi
+        chis = iota * phis
+        bsupu = 1 / jacobian * (chis - phis * lv)
+        bsupv = phis / jacobian * (1 + lu)
+        #  Compute the metric tensor elements
+        guu = Ru ** 2 + Zu ** 2
+        gvu = Ru * Rv + Zu * Zv
+        gvv = Rv ** 2 + R ** 2 + Zv ** 2
+        #  compute covariant mag. field components
+        bsubu = bsupu * guu + bsupv * gvu
+        bsubv = bsupu * gvu + bsupv * gvv
+        #  compute mu * f_rho
+        dbsubu_dx = grad(bsubu, x, create_graph=True)
+        dbsubv_dx = grad(bsubv, x, create_graph=True)
+        #  compute mu * f_beta
+        f_beta = (dbsubv_dx[:, 1] - dbsubu_dx[:, 2]) / jacobian
+        return f_beta  # mu0 * f_beta
+
+    def Jsup(self, x: Tensor, RlZ: Tensor) -> (Tensor, Tensor):
+        """
+        J^theta & J^zeta
+        """
+
+        R = RlZ[:, 0]
+        l = RlZ[:, 1]
+        Z = RlZ[:, 2]
+        rho = x[:, 0]
+        #  Compute the flux surface profiles
+        #  self.*_fn(s), where s = rho ** 2
+        iota = self.iota_fn(rho ** 2)
+        dR_dx = grad(R, x, create_graph=True)
+        # {s,u,v} = {rho, theta, ζ}
+        Rs = dR_dx[:, 0]
+        Ru = dR_dx[:, 1]
+        Rv = dR_dx[:, 2]
+        dl_dx = grad(l, x, create_graph=True)
+        lu = dl_dx[:, 1]
+        lv = dl_dx[:, 2]
+        dZ_dx = grad(Z, x, create_graph=True)
+        Zs = dZ_dx[:, 0]
+        Zu = dZ_dx[:, 1]
+        Zv = dZ_dx[:, 2]
+        #  Compute jacobian
+        jacobian = R * (Ru * Zs - Zu * Rs)
+        jacobian /= 2 * rho
+
+        #  Compute the magnetic fluxes derivatives
+        phis = self.phi_edge / (2 * torch.pi)
+        chis = iota * phis
+        bsupu =  (chis - phis * lv) / jacobian
+        bsupv = phis * (1 + lu) / jacobian
+        #  Compute the metric tensor elements
+        guu = Ru**2 + Zu**2
+        gvu = Ru * Rv + Zu * Zv
+        gvv = Rv ** 2 + R ** 2 + Zv ** 2
+        gus = Ru * Rs + Zu * Zs
+        gvs = Rv * Rs + Zv * Zs
+
+        bsubs = bsupu * gus + bsupv * gvs
+        bsubv = bsupu * gvu + bsupv * gvv
+        bsubu = bsupu * guu + bsupv * gvu
+
+        dbsubs_dx = grad(bsubs, x, create_graph=True)
+        dbsubv_dx = grad(bsubv, x, create_graph=True)
+        dbsubu_dx = grad(bsubu, x, create_graph=True)
+
+        mu0_jsupu = (dbsubs_dx[:, 2] - dbsubv_dx[:, 0]) / jacobian
+        mu0_jsupv = (dbsubu_dx[:, 0] - dbsubs_dx[:, 1]) / jacobian
+
+        return mu0_jsupu, mu0_jsupv
+
     def _mae_pde_loss(self, x: Tensor, RlZ: Tensor) -> Tensor:
         print(
             "MAE metric has not been implemented yet for the inverse 3D ideal MHD equilibrium"
