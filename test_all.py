@@ -633,7 +633,6 @@ def test_J_components(wout_path, ntheta, nzeta, ns, atol=1e-1):
         output[-1] = factor * output[-2] - (factor - 1) * output[-3]
         return output
 
-
     # signgs = torch.from_numpy(wout["signgs"][:].data)
     # bsubu = torch.from_numpy(wout["bsubumnc"][:, 0].data)
     # bsubv = torch.from_numpy(wout["bsubvmnc"][:, 0].data)
@@ -655,9 +654,6 @@ def test_J_components(wout_path, ntheta, nzeta, ns, atol=1e-1):
             Jsuptheta[js], jcuru[js], atol=atol, rtol=0
         ), f"jsupu mae={(Jsuptheta[js] - jcuru[js]).abs():.2e} at rho={rho[js]:.4f}"
         print(f"rho={rho[js]:.4f} passed")
-
-
-
 
 
 @pytest.mark.parametrize("wout_path", ("data/wout_HELIOTRON.nc", "data/wout_W7X.nc"))

@@ -267,6 +267,10 @@ class Inverse3DMHDMLP(torch.nn.Module):
         self.Ra = torch.nn.functional.pad(Ra, (0, len(mn) - len(Ra)), value=0)
         self.Za = torch.nn.functional.pad(Za, (0, len(mn) - len(Ra)), value=0)
 
+        #  Save Fourier coefficients to compute spectral condensation
+        self._rmnc = None
+        self._zmns = None
+
         #  Initialize model
         for tensor in (
             self.rmnl,
@@ -371,5 +375,23 @@ class Inverse3DMHDMLP(torch.nn.Module):
         # self._ax.autoscale_view()
         #######################
 
+        #  Save Fourier modes
+        self._rmnc = rmnc
+        self._zmns = zmns
+
         RlZ = torch.stack([R, l, Z], dim=-1)
         return RlZ
+
+    def M(self, p: int = 2, q: int = 0) -> Tensor:
+        """
+        Spectral condensation measure.
+
+        TODO: consider to add me as utils.
+        """
+        energy = self._rmnc**2 + self._zmns**2
+        num = self.xm ** (p + q) * energy
+        if q == 0:
+            print(num.sum())
+            return num.sum()
+        denom = self.xm**p * energy
+        return num.sum() / denom.sum()
