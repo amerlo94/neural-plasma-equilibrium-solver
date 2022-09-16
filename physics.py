@@ -1152,12 +1152,6 @@ class Inverse3DMHD(Equilibrium):
 
         self.wout_path = wout_path
 
-        ############################
-        # TODO: remove me
-        self._RlZ = None
-        self._t = 0
-        ############################
-
         self.force_history = {k: [] for k in ["F_rho", "F_beta", "F_tot", "F_tot_j"]}
 
     @classmethod
@@ -1231,14 +1225,6 @@ class Inverse3DMHD(Equilibrium):
             # boundary
             rho = torch.ones(1)
             boundary = torch.cartesian_prod(rho, theta, zeta)
-
-            ################
-            # TODO: remove me!
-            if self._RlZ is None:
-                from utils import get_RlZ_from_wout
-
-                self._RlZ = get_RlZ_from_wout(domain, self.wout_path)
-            ################
 
             yield domain, boundary, None
 
