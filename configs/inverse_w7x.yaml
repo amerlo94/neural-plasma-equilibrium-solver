@@ -1,9 +1,9 @@
 seed: 42
-max_epochs: 500
+max_epochs: 200
 nbatches: 1
 log_every_n_steps: 10
 update_axis_every_n_epochs: 20
-learning_rate: 0.001
+learning_rate: 0.01
 
 equilibrium:
   _target_: inverse-3d-mhd
@@ -28,4 +28,3 @@ equilibrium:
   nzeta: 9
   max_mpol: 2
   max_ntor: 2
-
