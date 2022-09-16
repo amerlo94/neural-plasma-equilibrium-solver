@@ -1158,6 +1158,10 @@ class Inverse3DMHD(Equilibrium):
         self._t = 0
         ############################
 
+        self.force_history = {k: [] for k in
+                              ["F_rho", "F_beta", "F_tot", "F_tot_j"]
+                              }
+
     @classmethod
     def from_vmec(cls, wout_path, **kwargs):
         """Instatiate Equilibrium from VMEC wout file."""
@@ -1243,7 +1247,7 @@ class Inverse3DMHD(Equilibrium):
     def eps(self, x: Tensor, RlZ: Tensor, reduction: Optional[str] = "mean") -> Tensor:
         raise NotImplementedError()
 
-    def _pde_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
+    def _pde_closure(self, x: Tensor, RlZ: Tensor, ongrid=False) -> Tensor:
         R = RlZ[:, 0]
         l = RlZ[:, 1]
         Z = RlZ[:, 2]
@@ -1307,24 +1311,19 @@ class Inverse3DMHD(Equilibrium):
             + grad_zeta * bsupu**2
             - 2 * grad_thetazeta * bsupu * bsupv
         )
-        fsq = f_rho**2 * grad_rho + f_beta**2 * beta
+        F_rho = f_rho ** 2 * grad_rho
+        F_beta = f_beta ** 2 * beta
+        fsq = F_rho + F_beta
+        fsq_j = fsq * jacobian.abs()
 
-        #  TODO: remove me, here only for debugging
-        # import matplotlib.pyplot as plt
-
-        # plt.plot(
-        #     rho[:: self.ntheta * self.nzeta].detach(),
-        #     (fsq * jacobian.abs())
-        #     .view(-1, self.ntheta, self.nzeta)
-        #     .detach()
-        #     .mean(dim=(1, 2)),
-        # )
-        # plt.xlabel(r"$\rho$")
-        # plt.yscale("log")
-        # plt.title(r"$\langle f^2 \rangle$")
-        # plt.show()
-
-        return (fsq * jacobian.abs()).sum()
+        self.force_history["F_rho"].append(F_rho.abs().sum().detach().numpy())
+        self.force_history["F_beta"].append(F_beta.abs().sum().detach().numpy())
+        self.force_history["F_tot"].append(fsq.abs().sum().detach().numpy())
+        self.force_history["F_tot_j"].append(fsq_j.abs().sum().detach().numpy())
+        if ongrid:
+            return fsq_j
+        else:
+            return fsq_j.sum()
 
     def f_rho(self, x: Tensor, RlZ: Tensor) -> Tensor:
         """
@@ -1520,21 +1519,23 @@ class Inverse3DMHD(Equilibrium):
             rho = torch.linspace(0, 1, ns + 1)[1:]
 
         theta = (2 * torch.linspace(0, 1, self.ntheta) - 1) * math.pi
-        zeta = (torch.linspace(0, 1, self.nzeta)) * 2 * math.pi / self.nfp
+        # plot on half grid (like vmec)
+        zeta = (torch.linspace(0, 1, self.nzeta)) * math.pi / self.nfp
         grid = torch.cartesian_prod(rho, theta, zeta)
 
         return grid
 
     def fluxsurfacesplot(
-        self,
-        x,
-        ax,
-        interpolation: Optional[str] = None,
-        phi: Optional[torch.Tensor] = None,
-        nplot: Optional[int] = 10,
-        scalar: Optional[torch.Tensor] = None,
-        contourf_kwargs: Optional[dict] = None,
-        **kwargs,
+            self,
+            x,
+            ax,
+            interpolation: Optional[str] = None,
+            phi: Optional[torch.Tensor] = None,
+            nplot: Optional[int] = 10,
+            zeta: Optional[int] = 0,
+            scalar: Optional[torch.Tensor] = None,
+            contourf_kwargs: Optional[dict] = None,
+            **kwargs,
     ):
         """
         Plot flux surfaces on (R, Z) plane.
@@ -1545,10 +1546,11 @@ class Inverse3DMHD(Equilibrium):
 
         assert len(x.shape) == 2
         assert interpolation in (None, "linear")
+        assert zeta < self.nzeta
 
         if phi is None:
             #  Infer number of flux surfaces
-            ns = int(x.shape[0] / self.ntheta / self.nzeta)
+            ns = int(x.shape[0] / self.nzeta / self.ntheta)
             #  Assume flux surfaces defined on rho
             phi = torch.linspace(0, 1, ns) ** 2
         else:
@@ -1582,31 +1584,91 @@ class Inverse3DMHD(Equilibrium):
                 Z_i = Z[idx_l]
                 if idx_l != len(phi) - 1:
                     R_i += (
-                        (p - phi[idx_l])
-                        / (phi[idx_u] - phi[idx_l])
-                        * (R[idx_u] - R[idx_l])
+                            (p - phi[idx_l])
+                            / (phi[idx_u] - phi[idx_l])
+                            * (R[idx_u] - R[idx_l])
                     )
                     Z_i += (
-                        (p - phi[idx_l])
-                        / (phi[idx_u] - phi[idx_l])
-                        * (Z[idx_u] - Z[idx_l])
+                            (p - phi[idx_l])
+                            / (phi[idx_u] - phi[idx_l])
+                            * (Z[idx_u] - Z[idx_l])
                     )
             #  Plot
-            ax.plot(R_i[:, 0], Z_i[:, 0], **kwargs)
+            ax.plot(R_i[:, zeta], Z_i[:, zeta], **kwargs)
             #  TODO: add more toroidal plane
             # ax.plot(R_i[:, -1], Z_i[:, -1], **kwargs)
             pi_half = int(R.shape[1] / 4)
-            ax.text(R_i[pi_half, 0], Z_i[pi_half, 0], f"{phi_i.item():.3f}")
+            ax.text(R_i[pi_half, zeta], Z_i[pi_half, zeta], f"{phi_i.item():.3f}")
+            if zeta == 0:
+                ax.set_title(r"ζ$=0$")
+            else:
+                ax.set_title(r"ζ$=\frac{" + f"{zeta}" + r"}{" + f"{self.nzeta}" + r"\cdot" + f"{self.nfp}" + r"\cdot 2\pi}$")
 
         if scalar is not None:
             scalar = scalar.detach().view(R.shape)
             cs = ax.contourf(R, Z, scalar, **contourf_kwargs)
             ax.get_figure().colorbar(cs)
 
-        ax.axis("equal")
+        ax.set_aspect("equal", "box")
         ax.set_prop_cycle(None)
 
         ax.set_xlabel(r"$R [m]$")
         ax.set_ylabel(r"$Z [m]$")
 
         return ax
+
+    def plot_force_history(self, ax):
+        minimum = 1e14
+        maximum = 1e-14
+        for k, v in self.force_history.items():
+            p = []
+            for i in v:
+                p.append(abs(i))
+                if i < minimum:
+                    minimum = i
+                if i > maximum:
+                    maximum = i
+            ax.plot([abs(i) for i in v], label=k)
+        ax.set_title("|Forces|")
+        ax.set_ylabel(r"$[N]$")
+        ax.set_yscale("log")
+        ax.set_xlabel(r"l-bfgs step")
+        ax.legend()
+        ax.set_ylim(top=maximum * 2, bottom=minimum / 2)
+        ax.grid(visible=True, axis="y", ls='-')
+        ax.set_prop_cycle(None)
+
+    def plot_pde_loss_on_rho_surface(self, fig, ax, rho, model):
+
+        axs_labelsize = 6
+
+        if not isinstance(rho, torch.Tensor):
+            rho = torch.tensor([rho])
+
+        theta = (2 * torch.linspace(0, 1, self.ntheta) - 1) * math.pi
+        zeta = (torch.linspace(0, 1, self.nzeta)) * math.pi / self.nfp
+        grid = torch.cartesian_prod(rho, theta, zeta)
+        grid.requires_grad_(True)
+        RlZ = model(grid)
+        pde_loss = self._pde_closure(grid, RlZ, ongrid=True)
+
+        ax.set_title(f"pde loss on ρ={rho.item()}")
+        ax.set_ylabel(r"ζ [rad]")
+        ax.set_xlabel(r"θ [rad]")
+
+        # ticks
+
+        ax.set_xticks(theta)
+        ax.set_xticklabels([f"{i:.3f}" for i in theta])
+        ax.set_yticks(zeta)
+        ax.set_yticklabels([f"{i:.3f}" for i in zeta])
+        ax.tick_params(axis="x", labelrotation=60, labelsize=axs_labelsize)
+        ax.tick_params(axis="y", labelsize=axs_labelsize)
+        ax.set_box_aspect(len(zeta) / len(theta))
+
+        # reshaping 1D array to fit mpl's 2d requirements
+        pde_loss = pde_loss.reshape(self.ntheta, -1).T.detach().numpy()
+        c = ax.pcolormesh(theta, zeta, pde_loss,
+                  edgecolors='k', linewidths=0.1, shading='nearest')
+        fig.colorbar(c, shrink=(len(zeta) / len(theta))*0.95)
+

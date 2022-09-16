@@ -9,6 +9,7 @@ import yaml
 import torch
 import matplotlib.pyplot as plt
 from matplotlib import ticker
+from matplotlib.gridspec import GridSpec
 
 from models import (
     HighBetaMLP,
@@ -194,7 +195,7 @@ def train(
                     ("rmnl_g", "lmnl_g", "zmnl_g"), (rmnl_grad, lmnl_grad, zmnl_grad)
                 ):
                     string += ", " + v
-                string += f", lr={scheduler.get_last_lr()[0]:.2e}"
+                #string += f", lr={scheduler.get_last_lr()[0]:.2e}"
                 print(string)
 
             #  Update running axis guess
@@ -253,13 +254,53 @@ def train(
         print(f"psi mae={psi_mae:.2e}")
 
     #  Plot magnetic flux
-    fig, ax = plt.subplots(1, 1, tight_layout=True)
-    if target == "inverse-grad-shafranov" or "inverse-3d-mhd":
+    if target == "inverse-grad-shafranov":
+        fig, ax = plt.subplots(1, 1, tight_layout=True)
+
         RlZ_hat = model(grid)
         equi.fluxsurfacesplot(
             RlZ_hat[:, [0, 2]], ax, linestyle="dashed", interpolation="linear"
         )
+    elif target == "inverse-3d-mhd":
+        # model
+        RlZ_hat = model(grid)
+        # VMEC
+        range_r = (RlZ_hat[:, 0].min(), RlZ_hat[:, 0].max())
+        range_z = (RlZ_hat[:, 2].min(), RlZ_hat[:, 2].max())
+        if equi.wout_path is not None:
+            rz, phi = get_3d_flux_surfaces_from_wout(
+                equi.wout_path, nzeta=equi.nzeta, ntheta=equi.ntheta
+            )
+            range_r = (min(range_r[0], rz[:, 0].min()) * 0.9, max(range_r[1], rz[:, 0].max()) * 1.1)
+            range_z = (min(range_z[0], rz[:, 1].min()) * 1.1, max(range_z[1], rz[:, 1].max()) * 1.1)
+
+        nrows = int(math.sqrt(equi.nzeta))
+        ncols = math.ceil(equi.nzeta / nrows)
+        fig = plt.figure(tight_layout=True, figsize=(ncols*5, nrows*4), dpi=nrows*100)
+        axs = []
+        gs = GridSpec(nrows=nrows, ncols=ncols)
+        for zeta in range(equi.nzeta):
+            axs.append(fig.add_subplot(gs[int(zeta / ncols), int(zeta % ncols)]))
+            equi.fluxsurfacesplot(
+                RlZ_hat[:, [0, 2]], axs[zeta], zeta=zeta,
+                linestyle="dashed", interpolation="linear"
+            )
+
+            if equi.wout_path is not None:
+                equi.fluxsurfacesplot(
+                    rz.clone(),
+                    axs[zeta],
+                    phi=torch.linspace(0, 1, phi.shape[0]),
+                    zeta=zeta,
+                    interpolation="linear",
+                    linestyle="solid",
+                )
+        for zeta in range(equi.nzeta):
+            axs[zeta].set_xlim(range_r[0].detach().numpy(), range_r[1].detach().numpy())
+            axs[zeta].set_ylim(range_z[0].detach().numpy(), range_z[1].detach().numpy())
+
     else:
+        fig, ax = plt.subplots(1, 1, tight_layout=True)
         equi.fluxplot(grid, psi_hat, ax, linestyles="dashed")
     if has_analytical_solution:
         #  Plot analytical solution
@@ -273,18 +314,6 @@ def train(
         rz, psi = get_flux_surfaces_from_wout(equi.wout_path)
         equi.fluxsurfacesplot(
             rz, ax, phi=torch.linspace(0, 1, psi.shape[0]), interpolation="linear"
-        )
-    if target == "inverse-3d-mhd" and equi.wout_path is not None:
-        #  Plot VMEC flux surfaces
-        rz, phi = get_3d_flux_surfaces_from_wout(
-            equi.wout_path, nzeta=equi.nzeta, ntheta=equi.ntheta
-        )
-        equi.fluxsurfacesplot(
-            rz,
-            ax,
-            phi=torch.linspace(0, 1, phi.shape[0]),
-            interpolation="linear",
-            linestyle="solid",
         )
 
     #  Plot scatter plot
@@ -317,11 +346,15 @@ def train(
         )
 
     #  Show figures
-    # ax.set_xlabel("R [m]")
-    # ax.set_ylabel("Z [m]")
-    # ax.set_xlim(-1.75, 1.75)
-    # ax.set_ylim(2.0, 6.0)
     plt.show()
+
+    # if target == "inverse-3d-mhd":
+    #     fig, ax = plt.subplots(1, 1, tight_layout=True)
+    #     equi.plot_force_history(ax)
+    #     plt.show()
+    #     fig, ax = plt.subplots(1, 1, tight_layout=True)
+    #     equi.plot_pde_loss_on_rho_surface(fig, ax, rho=0.5, model=model)
+    #     plt.show()
 
 
 if __name__ == "__main__":
