@@ -1235,7 +1235,7 @@ class Inverse3DMHD(Equilibrium):
         self,
         x: Tensor,
         RlZ: Tensor,
-        method: Optional[str] = "sum",
+        method: Optional[str] = "norm",
         ongrid: Optional[bool] = False,
     ) -> Tensor:
         """Radial and helical MHD force balance.
