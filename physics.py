@@ -1243,7 +1243,21 @@ class Inverse3DMHD(Equilibrium):
     def eps(self, x: Tensor, RlZ: Tensor, reduction: Optional[str] = "mean") -> Tensor:
         raise NotImplementedError()
 
-    def _pde_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
+    def _pde_closure(
+        self, x: Tensor, RlZ: Tensor, method: Optional[str] = "sum"
+    ) -> Tensor:
+        """Radial and helical MHD force balance.
+
+        Parameters
+        ----------
+        method : {'norm', 'sum'}, optional
+            * 'norm' (default): volume-averaged of the total MHD force balance,
+                      and weight the radial component with |grad(rho)| and the
+                      helical component with |grad(beta)|.
+            * 'sum': sum of the radial and helical squared residual.
+
+        """
+        assert method in ("norm", "sum")
         R = RlZ[:, 0]
         l = RlZ[:, 1]
         Z = RlZ[:, 2]
@@ -1281,7 +1295,7 @@ class Inverse3DMHD(Equilibrium):
         bsubs = bsupu * gus + bsupv * gvs
         bsubu = bsupu * guu + bsupv * gvu
         bsubv = bsupu * gvu + bsupv * gvv
-        #  compute mu * f_rho
+        #  compute mu0 * f_rho
         dbsubs_dx = grad(bsubs, x, create_graph=True)
         dbsubu_dx = grad(bsubu, x, create_graph=True)
         dbsubv_dx = grad(bsubv, x, create_graph=True)
@@ -1291,8 +1305,14 @@ class Inverse3DMHD(Equilibrium):
             - bsupu * (dbsubu_dx[:, 0] - dbsubs_dx[:, 1])
             - mu0 * ps
         )
-        #  compute mu * f_beta
-        f_beta = (dbsubv_dx[:, 1] - dbsubu_dx[:, 2]) / jacobian
+        #  compute mu0 * f_beta
+        #  TODO: f_beta could be minimized even without the jacobian factor,
+        #        however the jacobian factor is needed to correctly compute the
+        #        force norm.
+        # f_beta = (dbsubv_dx[:, 1] - dbsubu_dx[:, 2]) / jacobian
+        f_beta = dbsubv_dx[:, 1] - dbsubu_dx[:, 2]
+        if method == "sum":
+            return (f_rho**2).mean() + (f_beta**2).mean()
         #  compute squared norm of forces in cartesian coords
         _theta = Zv * Rs - Rv * Zs
         _zeta = Zs * Ru - Zu * Rs
@@ -1308,23 +1328,7 @@ class Inverse3DMHD(Equilibrium):
             - 2 * grad_thetazeta * bsupu * bsupv
         )
         fsq = f_rho**2 * grad_rho + f_beta**2 * beta
-
-        #  TODO: remove me, here only for debugging
-        # import matplotlib.pyplot as plt
-
-        # plt.plot(
-        #     rho[:: self.ntheta * self.nzeta].detach(),
-        #     (fsq * jacobian.abs())
-        #     .view(-1, self.ntheta, self.nzeta)
-        #     .detach()
-        #     .mean(dim=(1, 2)),
-        # )
-        # plt.xlabel(r"$\rho$")
-        # plt.yscale("log")
-        # plt.title(r"$\langle f^2 \rangle$")
-        # plt.show()
-
-        return (fsq * jacobian.abs()).sum()
+        return (fsq * jacobian.abs()).mean()
 
     def f_rho(self, x: Tensor, RlZ: Tensor) -> Tensor:
         """

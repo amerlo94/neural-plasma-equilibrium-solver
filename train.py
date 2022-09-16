@@ -123,19 +123,19 @@ def train(
     target = equilibrium["_target_"]
 
     # TODO: define optimizer in config
-    # optimizer = torch.optim.LBFGS(
-    #     model.parameters(),
-    #     lr=learning_rate,
-    #     tolerance_grad=0,
-    #     tolerance_change=0,
-    #     max_iter=20,
-    #     line_search_fn="strong_wolfe",
-    # )
-    optimizer = torch.optim.Adam(
+    optimizer = torch.optim.LBFGS(
         model.parameters(),
         lr=learning_rate,
+        tolerance_grad=0,
+        tolerance_change=0,
+        max_iter=20,
+        line_search_fn="strong_wolfe",
     )
-    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
+    # optimizer = torch.optim.Adam(
+    #     model.parameters(),
+    #     lr=learning_rate,
+    # )
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=1.0)
 
     #########
     # Train #
@@ -160,12 +160,12 @@ def train(
                 loss.backward()
                 return loss
 
-            loss = closure()
-            for param in model.parameters():
-                torch.nn.utils.clip_grad_norm_(param, 1e-4)
-            optimizer.step()
+            # loss = closure()
+            # for param in model.parameters():
+            #     torch.nn.utils.clip_grad_norm_(param, 1e-4)
+            # optimizer.step()
             # TODO: step for L-BFGS-B
-            # optimizer.step(closure)
+            optimizer.step(closure)
             scheduler.step()
 
             #  Print the current loss:
