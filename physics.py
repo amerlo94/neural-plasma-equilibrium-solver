@@ -1301,8 +1301,8 @@ class Inverse3DMHD(Equilibrium):
         #  TODO: f_beta could be minimized even without the jacobian factor,
         #        however the jacobian factor is needed to correctly compute the
         #        force norm.
-        # f_beta = (dbsubv_dx[:, 1] - dbsubu_dx[:, 2]) / jacobian
-        f_beta = dbsubv_dx[:, 1] - dbsubu_dx[:, 2]
+        # f_beta = dbsubv_dx[:, 1] - dbsubu_dx[:, 2]
+        f_beta = (dbsubv_dx[:, 1] - dbsubu_dx[:, 2]) / jacobian
         if method == "sum":
             return (f_rho**2).mean() + (f_beta**2).mean()
         #  compute squared norm of forces in cartesian coords
