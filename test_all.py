@@ -263,14 +263,13 @@ def test_inverse_grad_shafranov_pde_closure(wout_path, ntheta):
     fsq = equi.pde_closure(x, RlZ).item()
     mean_f = np.sqrt(fsq) / (equi.ntheta * equi.ndomain)
 
-    assert mean_f < 1e-3
+    assert mean_f < 1e-5
 
 
-#  TODO: improve jacobian, especially close to the axis
+#  TODO: improve jacobian at js=1
 @pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc", "data/wout_SOLOVEV.nc"))
 @pytest.mark.parametrize("ntheta", (32,))
-@pytest.mark.parametrize("js", range(1, 256))
-def test_inverse_grad_shafranov_jacobian(wout_path, ntheta, js):
+def test_inverse_grad_shafranov_jacobian(wout_path, ntheta):
 
     wout = get_wout(wout_path)
 
@@ -279,24 +278,15 @@ def test_inverse_grad_shafranov_jacobian(wout_path, ntheta, js):
 
     ns = wout["ns"][:].data.item()
 
-    #  Skip tests if we have reached the boundary
-    if js >= ns:
-        return
-
-    #  Create VMEC radial grid in phi
-    #  Half-mesh since jacobian is computed on half-mesh
+    # VMEC radial coordinate (VMEC calculates jacobian on half-mesh)
     phi = torch.zeros(ns)
     phi[1:] = torch.linspace(0, 1, ns)[1:] - 0.5 / (ns - 1)
+
+    #  Define grid from VMEC
     rho = torch.sqrt(phi)
-
-    #  Set grid as from VMEC
-    x = equi.grid()
-    x[:, 0] = rho.repeat_interleave(equi.ntheta)
-    x = x.to(torch.float64)
-    x.requires_grad_()
-
-    rho = x[:, 0]
-    theta = x[:, 1]
+    theta = (2 * torch.linspace(0, 1, ntheta) - 1) * torch.pi
+    x = torch.cartesian_prod(rho, theta).to(torch.float64)
+    x.requires_grad_(True)
 
     RlZ = get_RlZ_from_wout(x, wout_path)
 
@@ -311,15 +301,18 @@ def test_inverse_grad_shafranov_jacobian(wout_path, ntheta, js):
     Zu = dZ_dx[:, 1]
     jacobian = R * (Ru * Zs - Zu * Rs)
     #  Get jacobian in VMEC flux coordinates
-    jacobian /= 2 * rho
+    jacobian /= 2 * x[:, 0]
+    jacobian = jacobian.nan_to_num()
     jacobian = jacobian.view(-1, equi.ntheta)
 
     #  Get VMEC jacobian
-    wout = get_wout(wout_path)
     gmnc = torch.as_tensor(wout["gmnc"][:]).clone()
-    with torch.no_grad():
-        vmec_jacobian = ift(gmnc, basis="cos", ntheta=theta[: equi.ntheta])
+    xm_nyq = torch.as_tensor(wout["xm_nyq"][:]).clone()
+    angle = theta[:, None] * xm_nyq[None, :]
+    costm = torch.cos(angle)
+    vmec_jacobian = (costm[None, ...] * gmnc[:, None, :]).sum(dim=-1)
 
-    assert torch.allclose(
-        jacobian[js], vmec_jacobian[js], atol=1e-2, rtol=0
-    ), f"mae={(jacobian[js] - vmec_jacobian[js]).abs().mean():.2e} at rho={rho[::equi.ntheta][js]:.4f}"
+    for js in range(2, ns):
+        assert torch.allclose(
+            jacobian[js], vmec_jacobian[js], atol=1e-3, rtol=0
+        ), f"mae={(jacobian[js] - vmec_jacobian[js]).abs().mean():.2e} at rho={rho[js]:.4f}"
