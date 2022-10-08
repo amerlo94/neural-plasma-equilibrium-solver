@@ -26,6 +26,14 @@ Available configurations:
 - `configs/inverse_solovev.yaml`: inverse Solov'ev tokamak equilibrium.
 - `configs/inverse_dshape.yaml`: inverse D-shape tokamak equilibrium.
 
+## Test
+
+To run all tests, simply run:
+
+```shell
+pytest
+```
+
 ## TODO
 
 - [ ] fix equilibrium definition from VMEC wout (i.e., F function parsing)
