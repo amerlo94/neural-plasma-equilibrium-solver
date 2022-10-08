@@ -193,12 +193,10 @@ def test_grad_shafranov_eps(noise, reduction, fsq0, normalized):
         assert eps > noise
 
 
-#  TODO: improve interpolation for lmns and zmns
 @pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc", "data/wout_SOLOVEV.nc"))
 @pytest.mark.parametrize("ntheta", (32,))
-@pytest.mark.parametrize("js", range(256))
 @pytest.mark.parametrize("xmn", ("rmnc", "lmns", "zmns"))
-def test_get_RlZ_from_wout(wout_path, ntheta, xmn, js):
+def test_get_RlZ_from_wout(wout_path, ntheta, xmn):
 
     wout = get_wout(wout_path)
 
@@ -206,10 +204,6 @@ def test_get_RlZ_from_wout(wout_path, ntheta, xmn, js):
     equi.ntheta = ntheta
 
     ns = wout["ns"][:].data.item()
-
-    #  Skip tests if we have reached the boundary
-    if js >= ns:
-        return
 
     #  Create VMEC radial grid in phi
     if xmn == "lmns":
@@ -219,10 +213,9 @@ def test_get_RlZ_from_wout(wout_path, ntheta, xmn, js):
         phi = torch.linspace(0, 1, ns)
     rho = torch.sqrt(phi)
 
-    #  Set grid as from VMEC
-    grid = equi.grid()
-    grid[:, 0] = rho.repeat_interleave(equi.ntheta)
-    grid = grid.to(torch.float64)
+    #  Create poloidal grid
+    theta = (2 * torch.linspace(0, 1, ntheta) - 1) * torch.pi
+    grid = torch.cartesian_prod(rho, theta).to(torch.float64)
 
     #  Get differentiable quantity
     RlZ = get_RlZ_from_wout(grid, wout_path)
@@ -235,18 +228,22 @@ def test_get_RlZ_from_wout(wout_path, ntheta, xmn, js):
     x = x.view(-1, equi.ntheta)
 
     #  Get quantity from VMEC
-    basis = "cos" if xmn == "rmnc" else "sin"
-    vmec_x = ift(
-        torch.as_tensor(wout[xmn][:]).clone(),
-        basis=basis,
-        ntheta=grid[: equi.ntheta, 1],
-    )
+    xm = torch.from_numpy(wout["xm"][:].data)
+    angle = theta[:, None] * xm[None, :]
+    if xmn == "rmnc":
+        tm = torch.cos(angle)
+    else:
+        tm = torch.sin(angle)
+    wout_xmn = torch.as_tensor(wout[xmn][:]).clone()
+    vmec_x = (tm[None, ...] * wout_xmn[:, None, :]).sum(dim=-1)
 
-    #  Check if quantiies are below 1e-3 m for R and Z,
-    #  and below 1e-3 rad for lambda
-    assert torch.allclose(
-        x[js], vmec_x[js], rtol=0, atol=1e-3
-    ), f"mae={(x[js] - vmec_x[js]).abs().mean():.2e} at rho={rho[js]:.4f}"
+    for js in range(ns):
+        #  lambda is not defined on axis
+        if xmn == "lmns" and js in (0,):
+            continue
+        assert torch.allclose(
+            x[js], vmec_x[js], rtol=0, atol=1e-4
+        ), f"mae={(x[js] - vmec_x[js]).abs().mean():.2e} at rho={rho[js]:.4f}"
 
 
 @pytest.mark.parametrize("wout_path", ("data/wout_DSHAPE.nc", "data/wout_SOLOVEV.nc"))

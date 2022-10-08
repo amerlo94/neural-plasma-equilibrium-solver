@@ -171,14 +171,13 @@ def get_solovev_boundary(
     return Rb.detach()
 
 
-def get_RlZ_from_wout(x: Tensor, wout_path: str, mpol: Optional[int] = 5):
+def get_RlZ_from_wout(x: Tensor, wout_path: str):
     """
     Compute flux surfaces geometry on a given grid from a VMEC wout file.
 
     Args:
         x (torch.Tensor): the rho-theta grid on which to compute the RlZ tensor.
         wout_path (str): the wout file path.
-        mpol (int, optional): the highest poloidal modes to use to build the RlZ tensor. Default: 5.
     """
 
     wout = get_wout(wout_path)
@@ -188,19 +187,23 @@ def get_RlZ_from_wout(x: Tensor, wout_path: str, mpol: Optional[int] = 5):
 
     ns = wout["ns"][:].data.item()
     hs = 1 / (ns - 1)
-    phi = torch.linspace(0, 1, ns)
+
+    xm = torch.from_numpy(wout["xm"][:].data).to(int)
 
     def interp_xmn(x: str):
+        phi = torch.from_numpy(wout["phi"][:].data)
+        phi = phi / phi[-1]
         xmn = torch.from_numpy(wout[x][:].data)
         xmns = []
         #  lmns is defined on half-mesh
         if x == "lmns":
-            phi[1:] = torch.linspace(0, 1, ns)[1:] - 0.5 / (ns - 1)
-        for m in range(min(xmn.shape[1], mpol + 1)):
+            phi = torch.linspace(0, 1, ns)[1:] - 0.5 / (ns - 1)
+            xmn = xmn[1:]
+        for m in xm:
             #  Interpolate xmn / rho ** m
-            xmn_ = xmn
+            xmn_ = xmn[:, m]
             if m != 0:
-                xmn_ = xmn / torch.sqrt(phi)[:, None] ** m
+                xmn_ = xmn[:, m] / torch.sqrt(phi) ** m
             #  Quadratic interpolation
             idx_l = (
                 torch.argmin(
@@ -214,14 +217,12 @@ def get_RlZ_from_wout(x: Tensor, wout_path: str, mpol: Optional[int] = 5):
             else:
                 idx_l[idx_l == -1] = 1
                 idx_l[idx_l == 0] = 1
-            idx_l[idx_l == ns - 2] = ns - 3
+            idx_l[idx_l == len(phi) - 2] = len(phi) - 3
             #  Coefficients for the quadratic interpolation
             #  f(x) = b0 + b1 * (x - x0) + b2 * (x - x0) * (x - x1)
-            b0 = xmn_[idx_l, m]
-            b1 = (xmn_[idx_l + 1, m] - xmn_[idx_l, m]) / hs
-            b2 = (xmn_[idx_l + 2, m] - 2 * xmn_[idx_l + 1, m] + xmn_[idx_l, m]) / (
-                2 * hs**2
-            )
+            b0 = xmn_[idx_l]
+            b1 = (xmn_[idx_l + 1] - xmn_[idx_l]) / hs
+            b2 = (xmn_[idx_l + 2] - 2 * xmn_[idx_l + 1] + xmn_[idx_l]) / (2 * hs**2)
             interp = (
                 b0
                 + b1 * (rho**2 - phi[idx_l])
@@ -240,17 +241,16 @@ def get_RlZ_from_wout(x: Tensor, wout_path: str, mpol: Optional[int] = 5):
     lmns = interp_xmn("lmns")
     zmns = interp_xmn("zmns")
 
-    def get_x(xm, basis):
-        mpol = xm.shape[-1]
-        tm = torch.outer(theta, torch.arange(mpol, dtype=xm.dtype))
+    def get_x(xmn, basis):
+        angle = theta[:, None] * xm[None, :]
         if basis == "cos":
-            tm = torch.cos(tm)
+            tm = torch.cos(angle)
         else:
-            tm = torch.sin(tm)
-        return (tm * xm).sum(dim=1).view(-1, 1)
+            tm = torch.sin(angle)
+        return (tm * xmn).sum(dim=1)
 
     R = get_x(rmnc, basis="cos")
     l = get_x(lmns, basis="sin")
     Z = get_x(zmns, basis="sin")
 
-    return torch.cat([R, l, Z], dim=-1)
+    return torch.stack([R, l, Z], dim=-1)
