@@ -140,7 +140,7 @@ class InverseGradShafranovMLP(torch.nn.Module):
         Rb,
         Zb,
         width: int = 16,
-        num_features: int = 3,
+        num_features: int = 12,
     ) -> None:
         super().__init__()
 
@@ -150,17 +150,15 @@ class InverseGradShafranovMLP(torch.nn.Module):
 
         self.R_branch = torch.nn.Sequential(
             torch.nn.Linear(1, width),
-            torch.nn.Tanh(),
+            torch.nn.SiLU(),
             torch.nn.Linear(width, num_features, bias=False),
         )
         self.l_branch = torch.nn.Sequential(
-            torch.nn.Linear(1, width),
-            torch.nn.Tanh(),
-            torch.nn.Linear(width, num_features),
+            torch.nn.Linear(1, num_features),
         )
         self.Z_branch = torch.nn.Sequential(
             torch.nn.Linear(1, width),
-            torch.nn.Tanh(),
+            torch.nn.SiLU(),
             torch.nn.Linear(width, num_features, bias=False),
         )
         pad = torch.zeros(num_features)
@@ -180,9 +178,9 @@ class InverseGradShafranovMLP(torch.nn.Module):
             self.Z_branch[-1].weight,
             self.l_branch[-1].weight,
         ):
-            torch.nn.init.normal_(tensor, std=1e-2)
+            torch.nn.init.normal_(tensor=tensor, std=1e-2)
         for tensor in (self.l_branch[-1].bias,):
-            torch.nn.init.zeros_(tensor)
+            torch.nn.init.constant_(tensor=tensor, val=1e-2)
 
     def forward(self, x: Tensor) -> Tensor:
         rho = x[:, 0].view(-1, 1)
@@ -196,7 +194,7 @@ class InverseGradShafranovMLP(torch.nn.Module):
         normalized_rho = 2 * rho**2 - 1
         R = self.Rb * rho_factor * (1 + (1 - rho**2) * self.R_branch(normalized_rho))
         R = (R * cosm).sum(dim=1).view(-1, 1)
-        l = self.lb * rho_factor * (1 + self.l_branch(normalized_rho))
+        l = self.lb * rho_factor * (self.l_branch(normalized_rho))
         l = (l * sinm).sum(dim=1).view(-1, 1)
         Z = self.Zb * rho_factor * (1 + (1 - rho**2) * self.Z_branch(normalized_rho))
         Z = (Z * sinm).sum(dim=1).view(-1, 1)

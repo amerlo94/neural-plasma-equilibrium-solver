@@ -103,7 +103,7 @@ def train(
         lr=learning_rate,
         tolerance_grad=0,
         tolerance_change=0,
-        max_iter=20,
+        max_iter=50,
         line_search_fn="strong_wolfe",
     )
 
