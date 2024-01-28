@@ -146,12 +146,12 @@ class InverseGradShafranovMLP(torch.nn.Module):
 
         #  Fourier features
         self.num_features = num_features
-        self.B = torch.arange(num_features).view(-1, num_features)
+        self.modes = torch.arange(num_features).view(-1, num_features)
 
         self.R_branch = torch.nn.Sequential(
             torch.nn.Linear(1, width),
             torch.nn.Tanh(),
-            torch.nn.Linear(width, num_features),
+            torch.nn.Linear(width, num_features, bias=False),
         )
         self.l_branch = torch.nn.Sequential(
             torch.nn.Linear(1, width),
@@ -161,12 +161,9 @@ class InverseGradShafranovMLP(torch.nn.Module):
         self.Z_branch = torch.nn.Sequential(
             torch.nn.Linear(1, width),
             torch.nn.Tanh(),
-            torch.nn.Linear(width, num_features),
+            torch.nn.Linear(width, num_features, bias=False),
         )
-
-        #  Boundary condition used as scaling factors
-        #  Use default small values in case coefficient is not defined in boundary
-        pad = torch.ones(num_features) * 1e-3
+        pad = torch.zeros(num_features)
         self.Rb = pad.clone()
         self.Rb[: len(Rb)] = Rb
         self.Rb = self.Rb.view(-1, num_features)
@@ -184,27 +181,24 @@ class InverseGradShafranovMLP(torch.nn.Module):
             self.l_branch[-1].weight,
         ):
             torch.nn.init.normal_(tensor, std=1e-2)
-        for tensor in (
-            self.R_branch[-1].bias,
-            self.l_branch[-1].bias,
-            self.Z_branch[-1].bias,
-        ):
+        for tensor in (self.l_branch[-1].bias,):
             torch.nn.init.zeros_(tensor)
 
     def forward(self, x: Tensor) -> Tensor:
         rho = x[:, 0].view(-1, 1)
         theta = x[:, 1].view(-1, 1)
-        #  Get random Fourier Features
-        rf = theta * self.B
+        #  Get Fourier Features
+        rf = theta * self.modes
         cosm = torch.cos(rf)
         sinm = torch.sin(rf)
         #  Compute R, lambda and Z
-        rho_factor = torch.cat([rho**m for m in range(self.num_features)], dim=-1)
-        R = self.Rb * rho_factor * (1 + self.R_branch(rho))
+        rho_factor = rho**self.modes
+        normalized_rho = 2 * rho**2 - 1
+        R = self.Rb * rho_factor * (1 + (1 - rho**2) * self.R_branch(normalized_rho))
         R = (R * cosm).sum(dim=1).view(-1, 1)
-        l = self.lb * rho_factor * (1 + self.l_branch(rho))
+        l = self.lb * rho_factor * (1 + self.l_branch(normalized_rho))
         l = (l * sinm).sum(dim=1).view(-1, 1)
-        Z = self.Zb * rho_factor * (1 + self.Z_branch(rho))
+        Z = self.Zb * rho_factor * (1 + (1 - rho**2) * self.Z_branch(normalized_rho))
         Z = (Z * sinm).sum(dim=1).view(-1, 1)
         #  Build model output
         RlZ = torch.cat([R, l, Z], dim=-1)
