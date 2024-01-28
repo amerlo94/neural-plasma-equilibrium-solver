@@ -16,9 +16,12 @@ from physics import (
     GradShafranovEquilibrium,
     InverseGradShafranovEquilibrium,
 )
-from utils import log_gradients, mae, get_flux_surfaces_from_wout
+from utils import mae, get_flux_surfaces_from_wout
 
-torch.set_default_tensor_type(torch.DoubleTensor)
+torch.set_default_dtype(torch.float64)
+
+_TRUE_COLOR = "#af8dc3"
+_PREDICTED_COLOR = "#7fbf7b"
 
 
 def get_equilibrium_and_model(**equi_kws):
@@ -206,10 +209,29 @@ def train(
     #  Plot magnetic flux
     fig, ax = plt.subplots(1, 1, tight_layout=True)
     if target == "inverse-grad-shafranov":
+        if equi.wout_path is not None:
+            #  Plot VMEC flux surfaces
+            rz, psi = get_flux_surfaces_from_wout(equi.wout_path)
+            equi.fluxsurfacesplot(
+                rz,
+                ax,
+                phi=torch.linspace(0, 1, psi.shape[0]),
+                interpolation="linear",
+                color=_TRUE_COLOR,
+                label="VMEC",
+                linewidth=5,
+            )
         RlZ_hat = model(grid)
         equi.fluxsurfacesplot(
-            RlZ_hat[:, [0, 2]], ax, linestyle="dashed", interpolation="linear"
+            RlZ_hat[:, [0, 2]],
+            ax,
+            linestyle="dashed",
+            linewidth=5,
+            interpolation="linear",
+            color=_PREDICTED_COLOR,
+            label="NN",
         )
+        ax.legend()
     else:
         equi.fluxplot(grid, psi_hat, ax, linestyles="dashed")
     if has_analytical_solution:
@@ -219,12 +241,6 @@ def train(
         #  Plot VMEC flux surfaces
         rz, psi = get_flux_surfaces_from_wout(equi.wout_path)
         equi.fluxsurfacesplot(rz, ax, psi=psi, ns=psi.shape[0])
-    if target == "inverse-grad-shafranov" and equi.wout_path is not None:
-        #  Plot VMEC flux surfaces
-        rz, psi = get_flux_surfaces_from_wout(equi.wout_path)
-        equi.fluxsurfacesplot(
-            rz, ax, phi=torch.linspace(0, 1, psi.shape[0]), interpolation="linear"
-        )
 
     #  Plot scatter plot
     if target == "high-beta":
@@ -253,6 +269,7 @@ def train(
             scalar=equi.eps(x, psi_hat, reduction=None),
             phi=x[:: equi.ntheta, 0] ** 2,
             contourf_kwargs={"locator": ticker.LogLocator()},
+            color="k",
         )
 
     #  Show figures

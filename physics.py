@@ -810,9 +810,6 @@ class InverseGradShafranovEquilibrium(Equilibrium):
             boundary = torch.stack([rho, theta], dim=-1)
             yield domain, boundary, None
 
-    def eps(self, x: Tensor, Rlz: Tensor, reduction: Optional[str] = "mean") -> Tensor:
-        raise NotImplementedError()
-
     def _pde_closure(self, x: Tensor, RlZ: Tensor) -> Tensor:
         #  TODO: simplify the expression to reduce torch computational graph
         R = RlZ[:, 0]
@@ -866,9 +863,7 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         gsupsu = R**2 / jacobian**2 * (Rs * Ru + Zs * Zu)
         #  Compute the squared L2-norm of F
         fsq = (
-            f_rho**2 * grad_rho
-            + f_theta**2 * grad_theta
-            + 2 * f_rho * f_theta * gsupsu
+            f_rho**2 * grad_rho + f_theta**2 * grad_theta + 2 * f_rho * f_theta * gsupsu
         )
         #  Compute the volume-averaged ||f||2, factors missing:
         #  1. in MKS units, there should be a 1 / mu0**2 factor
@@ -928,9 +923,7 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         gsupsu = R**2 / jacobian**2 * (Rs * Ru + Zs * Zu)
         #  Compute the squared L2-norm of F
         fsq = (
-            f_rho**2 * grad_rho
-            + f_theta**2 * grad_theta
-            + 2 * f_rho * f_theta * gsupsu
+            f_rho**2 * grad_rho + f_theta**2 * grad_theta + 2 * f_rho * f_theta * gsupsu
         )
         gradpsq = (mu0 * ps) ** 2
         if reduction is None:
@@ -973,9 +966,10 @@ class InverseGradShafranovEquilibrium(Equilibrium):
         ax,
         interpolation: Optional[str] = None,
         phi: Optional[torch.Tensor] = None,
-        nplot: Optional[int] = 10,
+        nplot: int = 10,
         scalar: Optional[torch.Tensor] = None,
         contourf_kwargs: Optional[dict] = None,
+        add_phi_label: bool = False,
         **kwargs,
     ):
         """
@@ -1007,7 +1001,7 @@ class InverseGradShafranovEquilibrium(Equilibrium):
 
         #  Plot nplot + 1 flux surfaces equally spaced in phi
         phi_ii = torch.linspace(0, phi[-1].item(), nplot + 1)
-        for p in phi_ii:
+        for i, p in enumerate(phi_ii):
             if interpolation is None:
                 #  Use closest available flux surface
                 idx = torch.argmin((phi - p).abs())
@@ -1033,9 +1027,12 @@ class InverseGradShafranovEquilibrium(Equilibrium):
                         * (Z[idx_u] - Z[idx_l])
                     )
             #  Plot
+            if i > 0 and "label" in kwargs:
+                del kwargs["label"]
             ax.plot(R_i, Z_i, **kwargs)
-            pi_half = int(R.shape[1] / 4)
-            ax.text(R_i[pi_half], Z_i[pi_half], f"{phi_i.item():.3f}")
+            if add_phi_label:
+                pi_half = int(R.shape[1] / 4)
+                ax.text(R_i[pi_half], Z_i[pi_half], f"{phi_i.item():.3f}")
 
         if scalar is not None:
             scalar = scalar.detach().view(R.shape)
