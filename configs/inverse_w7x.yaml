@@ -1,9 +1,9 @@
 seed: 42
-max_epochs: 200
+max_epochs: 300
 nbatches: 1
-log_every_n_steps: 10
+log_every_n_steps: 1
 update_axis_every_n_epochs: 20
-learning_rate: 0.01
+learning_rate: 0.1
 
 equilibrium:
   _target_: inverse-3d-mhd
@@ -23,8 +23,8 @@ equilibrium:
   phi_edge: -2.1
   wout_path: data/wout_W7X.nc
   sym: true
-  ns: 21
-  ntheta: 8
-  nzeta: 9
-  max_mpol: 2
+  ns: 6
+  ntheta: 17
+  nzeta: 5
+  max_mpol: 8
   max_ntor: 2

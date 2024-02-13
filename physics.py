@@ -1,12 +1,13 @@
 import math
 import numpy as np
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple
 
+import matplotlib
 import torch
 from torch import Tensor
 from torch.utils.data import IterableDataset
 
-from utils import ift, ift_2D, grad, mae, get_profile_from_wout, get_wout
+from utils import ift_2D, grad, mae, get_profile_from_wout, get_wout
 
 mu0 = 4 * math.pi * 1e-7
 
@@ -1330,7 +1331,7 @@ class Inverse3DMHD(Equilibrium):
         self.force_history["F_tot"].append(fsq.abs().sum().detach().numpy())
         self.force_history["F_tot_j"].append(fsq_j.abs().sum().detach().numpy())
         if ongrid:
-            return fsq_j
+            return torch.sqrt(fsq) / (mu0 * ps * grad_rho).abs()
         else:
             return fsq_j.mean()
 
@@ -1569,21 +1570,20 @@ class Inverse3DMHD(Equilibrium):
         x = x.detach()
 
         #  Create plotting grid
-        R = x[:, 0].view(ns, self.ntheta, self.nzeta)
-        Z = x[:, 1].view(ns, self.ntheta, self.nzeta)
+        R = x[:, 0].view(-1, self.ntheta, self.nzeta)
+        Z = x[:, 1].view(-1, self.ntheta, self.nzeta)
 
         if nplot > ns:
             nplot = ns
 
         #  Plot nplot + 1 flux surfaces equally spaced in phi
-        phi_ii = torch.linspace(0, phi[-1].item(), nplot + 1)
-        for p in phi_ii:
+        phi_ii = torch.linspace(0, phi[-1].item(), nplot + 2)[1:]
+        for i, p in enumerate(phi_ii):
             if interpolation is None:
                 #  Use closest available flux surface
                 idx = torch.argmin((phi - p).abs())
                 R_i = R[idx]
                 Z_i = Z[idx]
-                phi_i = phi[idx]
             elif interpolation == "linear":
                 #  Perform linear interpolation
                 idx_l = torch.argmin(torch.relu(p - phi))
@@ -1603,6 +1603,8 @@ class Inverse3DMHD(Equilibrium):
                         * (Z[idx_u] - Z[idx_l])
                     )
             #  Plot
+            if i > 0 and "label" in kwargs:
+                del kwargs["label"]
             ax.plot(R_i[:, zeta], Z_i[:, zeta], **kwargs)
             #  TODO: add more toroidal plane
             # ax.plot(R_i[:, -1], Z_i[:, -1], **kwargs)
@@ -1689,3 +1691,26 @@ class Inverse3DMHD(Equilibrium):
             theta, zeta, pde_loss, edgecolors="k", linewidths=0.1, shading="nearest"
         )
         fig.colorbar(c, shrink=(len(zeta) / len(theta)) * 0.95)
+
+    def plot_pde_loss_on_cross_section(self, model, ax, zeta_index) -> None:
+
+        rho = torch.linspace(0, 1, self.ns + 2)[1:-1]
+        theta = (2 * torch.linspace(0, 1, self.ntheta) - 1) * math.pi
+        zeta = (torch.linspace(0, 1, self.nzeta)) * math.pi / self.nfp
+        grid = torch.cartesian_prod(rho, theta, zeta)
+        grid.requires_grad_(True)
+        RlZ = model(grid)
+        pde_loss = self._pde_closure(grid, RlZ, ongrid=True)
+
+        ax.set_ylabel("Z [m]")
+        ax.set_xlabel("R [m]")
+
+        RlZ = RlZ.reshape(self.ns, self.ntheta, self.nzeta, 3).detach().numpy()
+        pde_loss = pde_loss.reshape(self.ns, self.ntheta, self.nzeta).detach().numpy()
+        scalar = pde_loss[:, :, zeta_index]
+        cs = ax.contourf(
+            RlZ[:, :, zeta_index, 0], RlZ[:, :, zeta_index, 2], scalar,
+            norm=matplotlib.colors.LogNorm(),
+        )
+        ax.get_figure().colorbar(cs, extend="max")
+        ax.set_aspect("equal")

@@ -32,6 +32,8 @@ from utils import (
 
 torch.set_default_tensor_type(torch.DoubleTensor)
 
+_TRUE_COLOR = "#af8dc3"
+_PREDICTED_COLOR = "#7fbf7b"
 
 def get_equilibrium_and_model(**equi_kws):
 
@@ -129,14 +131,14 @@ def train(
         lr=learning_rate,
         tolerance_grad=0,
         tolerance_change=0,
-        max_iter=20,
+        max_iter=50,
         line_search_fn="strong_wolfe",
     )
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
     # optimizer = torch.optim.Adam(
     #     model.parameters(),
     #     lr=learning_rate,
     # )
-    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=1.0)
 
     #########
     # Train #
@@ -241,6 +243,9 @@ def train(
         psi_hat *= equi.psi_0
 
     #  Get grid points
+    equi.ns = 99
+    equi.ntheta = 32
+    equi.nzeta = 36
     grid = equi.grid(normalized=False)
 
     has_analytical_solution = target == "high-beta" or (
@@ -287,7 +292,7 @@ def train(
         )
         axs = []
         gs = GridSpec(nrows=nrows, ncols=ncols)
-        for zeta in range(equi.nzeta):
+        for i, zeta in enumerate(torch.linspace(0, equi.nzeta - 1, 4, dtype=int)):
             axs.append(fig.add_subplot(gs[int(zeta / ncols), int(zeta % ncols)]))
             equi.fluxsurfacesplot(
                 RlZ_hat[:, [0, 2]],
@@ -295,6 +300,31 @@ def train(
                 zeta=zeta,
                 linestyle="dashed",
                 interpolation="linear",
+            )
+            if equi.wout_path is not None:
+                equi.fluxsurfacesplot(
+                    rz.clone(),
+                    ax,
+                    phi=torch.linspace(0, 1, phi.shape[0]),
+                    nplot=4,
+                    zeta=zeta,
+                    interpolation="linear",
+                    linestyle="solid",
+                    color=_TRUE_COLOR,
+                    label="VMEC" if i == 0 else None,
+                    linewidth=3,
+                )
+            equi.fluxsurfacesplot(
+                RlZ_hat[:, [0, 2]],
+                ax,
+                zeta=zeta,
+                phi=torch.linspace(0, 1, equi.ns)**2,
+                nplot=4,
+                linestyle="dashed",
+                interpolation="linear",
+                color=_PREDICTED_COLOR,
+                label="NN" if i == 0 else None,
+                linewidth=3,
             )
 
             if equi.wout_path is not None:
@@ -355,6 +385,13 @@ def train(
             phi=x[:: equi.ntheta, 0] ** 2,
             contourf_kwargs={"locator": ticker.LogLocator()},
         )
+    if target == "inverse-3d-mhd":
+        for idx in torch.linspace(0, equi.nzeta - 1, 4):
+            fig, ax = plt.subplots(1, 1, tight_layout=True)
+            # Reduce resolution to avoid memory issues.
+            equi.ns = 11
+            equi.plot_pde_loss_on_cross_section(ax=ax, model=model, zeta_index=int(idx))
+            fig.savefig(f"w7x-eps-{int(idx)}.pdf", dpi=300)
 
     #  Show figures
     plt.show()
